@@ -1,0 +1,4 @@
+SET(src grid/grid.cpp grid/grid.h )
+ADD_LIBRARY(mygrid SHARED ${src})
+TARGET_INCLUDE_DIRECTORIES(mygrid PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR};${CMAKE_CURRENT_SOURCE_DIR}>/grid")
