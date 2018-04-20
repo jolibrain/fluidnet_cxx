@@ -81,7 +81,7 @@ struct vec3 {
     return ret;
   }
 
-  inline float& operator()(int64_t i) {
+  inline float& operator()(int32_t i) {
     switch (i) {
     case 0:
       return this->x;
@@ -96,7 +96,7 @@ struct vec3 {
     }
   }
 
-  inline float operator()(int64_t i) const {
+  inline float operator()(int32_t i) const {
     return (*this)(i);
   }
 

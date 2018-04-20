@@ -12,7 +12,8 @@ int main(){
   Int3 vec_int(4,4,5);
   std::cout << "Test isInBounds : " << test.isInBounds(vec_int, 10) 
        << "\n";
-
+  std::cout << "Size of Tensor : [" << test.getSize().x << "," << 
+       test.getSize().y << "," << test.getSize().z << "]\n";
 
 
 
