@@ -3,11 +3,17 @@
 #include <iostream>
 
 int main(){
-  at::Tensor t = at::CUDA(at::kFloat).rand({128, 64, 2, 3, 3});
-  std::cout << "Size of tensor t : " << t.size(1) << "\n";
-  std::cout << "Stride of tensor t : " << t.stride(0) << "\n";
-  //Tensor t = rand(CPU(kFloat).rand({10,3,1,4,4});i
-  //Tensor t = rand(CPU(at::kFloat), {1,3});
+  at::Tensor t = at::CUDA(at::kFloat).rand({128, 64, 1, 3, 3});
   at::Tensor* p_t = &t;
   GridBase test(p_t,false);
+  
+  std::cout << "Is the data 3D? : " << test.is_3d() << "\n";
+  std::cout << "Dx of the sim : " << test.getDx() << "\n";
+  Int3 vec_int(4,4,5);
+  std::cout << "Test isInBounds : " << test.isInBounds(vec_int, 10) 
+       << "\n";
+
+
+
+
 }
