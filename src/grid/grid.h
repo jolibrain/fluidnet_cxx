@@ -124,10 +124,10 @@ public:
   }
 };
 
-// RealGrid is supposed to be like Grid<Real> in Manta.
-class RealGrid : public GridBase {
+// FloatGrid is supposed to be like Grid<Real> in Manta.
+class FloatGrid : public GridBase {
 public:
-  explicit RealGrid(at::Tensor* grid, bool is_3d);
+  explicit FloatGrid(at::Tensor* grid, bool is_3d);
 
   float& operator()(int32_t i, int32_t j, int32_t k, int32_t b) {
     return data(i, j, k, 0, b);

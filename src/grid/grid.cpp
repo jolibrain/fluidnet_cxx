@@ -59,11 +59,13 @@ int32_t GridBase::index5d(int32_t i, int32_t j, int32_t k,
           b * bstride());
 }
 
-// Build index is used in interpol and interpolComponent. It replicates
-// the BUILD_INDEX macro in Manta's util/interpol.h.
+// Build index is used in interpol and interpolComponent. It allows to 
+// perform interpolation of values in a cell.
 void GridBase::buildIndex(
     int32_t& xi, int32_t& yi, int32_t& zi, float& s0, float& t0, float& f0,
     float& s1, float& t1, float& f1, const vec3& pos) const {
+ // Manta defines 0.5 as the center of the first cell, see this on manta/source/grid.h
+
   const float px = pos.x - static_cast<float>(0.5);
   const float py = pos.y - static_cast<float>(0.5);
   const float pz = pos.z - static_cast<float>(0.5);
@@ -113,6 +115,9 @@ void GridBase::buildIndex(
 
 std::mutex GridBase::mutex_;
 
+// ****************************************************************************
+// Flag Grid
+//*****************************************************************************
 FlagGrid::FlagGrid(at::Tensor* grid, bool is_3d) :
     GridBase(grid, is_3d) {
   if (nchan() != 1) {
@@ -120,15 +125,20 @@ FlagGrid::FlagGrid(at::Tensor* grid, bool is_3d) :
   }
 }
 
-RealGrid::RealGrid(at::Tensor* grid, bool is_3d) :
+
+// ****************************************************************************
+// Float Grid
+//*****************************************************************************
+
+FloatGrid::FloatGrid(at::Tensor* grid, bool is_3d) :
     GridBase(grid, is_3d) {
   if (nchan() != 1) {
-    AT_ERROR("RealGrid: nchan must be 1 (scalar).");
+    AT_ERROR("FloatGrid: nchan must be 1 (scalar).");
   }
 }
 
 
-float RealGrid::getInterpolatedHi(const vec3& pos,
+float FloatGrid::getInterpolatedHi(const vec3& pos,
                                            int32_t order, int32_t b) const {
   switch (order) {
   case 1:
@@ -144,7 +154,7 @@ float RealGrid::getInterpolatedHi(const vec3& pos,
   return 0;
 }
 
-float RealGrid::getInterpolatedWithFluidHi(
+float FloatGrid::getInterpolatedWithFluidHi(
     const FlagGrid& flags, const vec3& pos,
     int32_t order, int32_t b) const {
   switch (order) {
@@ -161,7 +171,7 @@ float RealGrid::getInterpolatedWithFluidHi(
   return 0;
 }
 
-float RealGrid::interpol(const vec3& pos, int32_t b) const {
+float FloatGrid::interpol(const vec3& pos, int32_t b) const {
   int32_t xi, yi, zi;
   float s0, t0, f0, s1, t1, f1;
   buildIndex(xi, yi, zi, s0, t0, f0, s1, t1, f1, pos); 
@@ -183,7 +193,7 @@ float RealGrid::interpol(const vec3& pos, int32_t b) const {
   }
 }
 
-void RealGrid::interpol1DWithFluid(
+void FloatGrid::interpol1DWithFluid(
     const float val_a, const bool is_fluid_a,
     const float val_b, const bool is_fluid_b,
     const float t_a, const float t_b,
@@ -203,7 +213,7 @@ void RealGrid::interpol1DWithFluid(
   }
 }
 
-float RealGrid::interpolWithFluid(
+float FloatGrid::interpolWithFluid(
     const FlagGrid& flags, const vec3& pos,
     int32_t ibatch) const {
   int32_t xi, yi, zi;
@@ -312,6 +322,10 @@ float RealGrid::interpolWithFluid(
     }
   }
 }
+
+// ****************************************************************************
+// MAC Grid
+//*****************************************************************************
 
 MACGrid::MACGrid(at::Tensor* grid, bool is_3d) :
     GridBase(grid, is_3d) {
@@ -436,6 +450,9 @@ float MACGrid::interpolComponent(
            data(xi + 1, yi + 1, 0, c, b) * t1) * s1);
   }
 }
+// ****************************************************************************
+// Vec Grid
+//*****************************************************************************
 
 VecGrid::VecGrid(at::Tensor* grid, bool is_3d) :
     GridBase(grid, is_3d) {
