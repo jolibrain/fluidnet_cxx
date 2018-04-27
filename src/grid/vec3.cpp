@@ -1,6 +1,3 @@
-#include <cmath>
-#include <limits>
-
 #include "vec3.h"
 
 Int3 toInt3(const vec3& val) {

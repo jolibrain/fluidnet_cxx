@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <limits>
+#include "ATen/ATen.h"
 
 struct Int3 {
   int32_t x;

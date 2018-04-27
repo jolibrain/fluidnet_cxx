@@ -33,6 +33,8 @@ public:
   bool isInBounds(const Int3& p, int bnd) const;
 
   bool isInBounds(const vec3& p, int bnd) const;
+ 
+  friend std::ostream& operator<<(std::ostream& os, const GridBase& outGrid);
 
 private:
   at::Tensor* const tensor_;

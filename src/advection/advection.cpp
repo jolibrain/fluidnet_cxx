@@ -1,56 +1,37 @@
-#include "generic/calc_line_trace.cc"
+#include "calc_line_trace.h"
+#include "advect_type.h"
 
 // *****************************************************************************
 // advectScalar
 // *****************************************************************************
 
-inline float SemiLagrangeRK2Ours(
-    FlagGrid& flags, MACGrid& vel, RealGrid& src,
-    float dt, int order_space, int32_t i, int32_t j, int32_t k, int32_t b,
-    const bool line_trace, const bool sample_outside_fluid) {
+float SemiLagrangeEulerFluidNet
+(
+    FlagGrid& flags,
+    MACGrid& vel,
+    RealGrid& src,
+    float dt,
+    int order_space,
+    int32_t i, int32_t j, int32_t k, int32_t b,
+    const bool line_trace,
+    const bool sample_outside_fluid
+) {
   if (!flags.isFluid(i, j, k, b)) {
     // Don't advect solid geometry!
     return src(i, j, k, b);
   }
 
   const vec3 pos = vec3((float)i + (float)0.5,
-                                            (float)j + (float)0.5,
-                                            (float)k + (float)0.5);
-  vec3 displacement = vel.getCentered(i, j, k, b) * (-dt * (float)0.5);
+                        (float)j + (float)0.5,
+                        (float)k + (float)0.5);
+  vec3 displacement = vel.getCentered(i, j, k, b) * (-dt);
 
   // Calculate a line trace from pos along displacement.
   // NOTE: this is expensive (MUCH more expensive than Manta's routines), but
   // can avoid some artifacts which would occur sampling into Geometry.
-  vec3 half_pos;
-  const bool hit_bnd_half =
-      calcLineTrace(pos, displacement, flags, b, &half_pos, line_trace);
-
-  if (hit_bnd_half) {
-    // We hit the boundary, then as per Bridson, we should clamp the backwards
-    // trace. Note: if we treated this as a full euler step, we would have hit
-    // the same blocker because the line trace is linear.
-    if (!sample_outside_fluid) {
-      return src.getInterpolatedWithFluidHi(flags, half_pos, order_space, b);
-    } else {
-      return src.getInterpolatedHi(half_pos, order_space, b);
-    }
-  } 
-
-  // Otherwise, sample the velocity at this half-step location and do another
-  // backwards trace.
-  displacement.x = vel.getInterpolatedComponentHi(half_pos, order_space, 0, b);
-  displacement.y = vel.getInterpolatedComponentHi(half_pos, order_space, 1, b);
-  if (flags.is_3d()) {
-    displacement.z =
-        vel.getInterpolatedComponentHi(half_pos, order_space, 2, b);
-  }
-  displacement = displacement * (-dt);
   vec3 back_pos;
   calcLineTrace(pos, displacement, flags, b, &back_pos, line_trace);
 
-  // Note: It actually doesn't matter if we hit the boundary on the second
-  // trace. We clamp the trace anyway.
-
   // Finally, sample the field at this back position.
   if (!sample_outside_fluid) {
     return src.getInterpolatedWithFluidHi(flags, back_pos, order_space, b);
@@ -59,85 +40,21 @@ inline float SemiLagrangeRK2Ours(
   }
 }
 
-inline float SemiLagrangeRK3Ours(
-    FlagGrid& flags, MACGrid& vel, RealGrid& src,
-    float dt, int order_space, int32_t i, int32_t j, int32_t k, int32_t b,
-    const bool line_trace, const bool sample_outside_fluid) {
-  if (!flags.isFluid(i, j, k, b)) {
-    // Don't advect solid geometry!
-    return src(i, j, k, b);
-  }
-  
-  // We're implementing the RK3 from Bridson page 242.
-  // k1 = f(q^n)
-  const vec3 k1_pos =
-      vec3((float)i + (float)0.5, 
-                     (float)j + (float)0.5,
-                     (float)k + (float)0.5);
-  vec3 k1 = vel.getCentered(i, j, k, b);
-
-  // Calculate a line trace from pos along displacement.
-  // NOTE: this is expensive (MUCH more expensive than Manta's routines), but
-  // can avoid some artifacts which would occur sampling into Geometry.
-  // k2 = f(q^n - 1/2 * dt * k1)
-  vec3 k2_pos;
-  if (calcLineTrace(k1_pos, k1 * (-dt * (float)0.5), flags, b, &k2_pos,
-                    line_trace)) {
-    // If we hit the boundary we'll truncate to an Euler step.
-    if (!sample_outside_fluid) {
-      return src.getInterpolatedWithFluidHi(flags, k2_pos, order_space, b);
-    } else {
-      return src.getInterpolatedHi(k2_pos, order_space, b);
-    }
-  }
-  vec3 k2;
-  k2.x = vel.getInterpolatedComponentHi(k2_pos, order_space, 0, b);
-  k2.y = vel.getInterpolatedComponentHi(k2_pos, order_space, 1, b);
-  if (flags.is_3d()) {
-    k2.z = vel.getInterpolatedComponentHi(k2_pos, order_space, 2, b);
-  }
-
-  // k3 = f(q^n - 3/4 * dt * k2)
-  vec3 k3_pos;
-  if (calcLineTrace(k1_pos, k2 * (-dt * (float)0.75), flags, b, &k3_pos,
-                    line_trace)) {
-    // If we hit the boundary we'll truncate to the current position.
-    if (!sample_outside_fluid) {
-      return src.getInterpolatedWithFluidHi(flags, k3_pos, order_space, b);
-    } else {
-      return src.getInterpolatedHi(k3_pos, order_space, b);
-    }
-  }
-  vec3 k3;
-  k3.x = vel.getInterpolatedComponentHi(k3_pos, order_space, 0, b);
-  k3.y = vel.getInterpolatedComponentHi(k3_pos, order_space, 1, b);
-  if (flags.is_3d()) {
-    k3.z = vel.getInterpolatedComponentHi(k3_pos, order_space, 2, b);
-  } 
-
-  // Finally calculate the effective velocity and perform a line trace.
-  vec3 back_pos;
-  vec3 displacement = (k1 * (-dt * (float)(2.0 / 9.0)) +
-                                 k2 * (-dt * (float)(3.0 / 9.0)) +
-                                 k3 * (-dt * (float)(4.0 / 9.0)));
-  calcLineTrace(k1_pos, displacement, flags, b, &back_pos, line_trace);
-
-  // Finally, sample the field at this back position.
-  if (!sample_outside_fluid) {
-    return src.getInterpolatedWithFluidHi(flags, back_pos, order_space, b);
-  } else {
-    return src.getInterpolatedHi(back_pos, order_space, b);
-  }
-}
-
-// This is the same kernel as our other Euler kernel, except it saves the
-// particle trace position. This is used for our maccormack routine (we'll do
-// a local search around these positions in our clamp routine).
-inline float SemiLagrangeEulerOursSavePos(
-    FlagGrid& flags, MACGrid& vel, RealGrid& src,
-    float dt, int order_space, int32_t i, int32_t j, int32_t k, int32_t b,
-    const bool line_trace, const bool sample_outside_fluid,
-    VecGrid& pos) {
+// This is the same kernel as the previous FluidNet Euler kernel, except it saves the
+// particle trace position. This is used for FluidNet maccormack routine (it does
+// a local search around these positions in clamp routine).
+float SemiLagrangeEulerFluidNetSavePos
+(
+    FlagGrid& flags, 
+    MACGrid& vel, 
+    RealGrid& src,
+    float dt,
+    int order_space,
+    int32_t i, int32_t j, int32_t k, int32_t b,
+    const bool line_trace,
+    const bool sample_outside_fluid,
+    VecGrid& pos
+) {
   if (!flags.isFluid(i, j, k, b)) {
     // Don't advect solid geometry!
     pos.set(i, j, k, b, vec3(i, j, k) + (float)0.5);
@@ -164,50 +81,16 @@ inline float SemiLagrangeEulerOursSavePos(
   }
 }
 
-inline float SemiLagrangeEulerOurs(
-    FlagGrid& flags, MACGrid& vel, RealGrid& src,
-    float dt, int order_space, int32_t i, int32_t j, int32_t k, int32_t b,
-    const bool line_trace, const bool sample_outside_fluid) {
-  if (!flags.isFluid(i, j, k, b)) {
-    // Don't advect solid geometry!
-    return src(i, j, k, b);
-  }
-
-  const vec3 pos = vec3((float)i + (float)0.5,
-                                            (float)j + (float)0.5,
-                                            (float)k + (float)0.5);
-  vec3 displacement = vel.getCentered(i, j, k, b) * (-dt);
-
-  // Calculate a line trace from pos along displacement.
-  // NOTE: this is expensive (MUCH more expensive than Manta's routines), but
-  // can avoid some artifacts which would occur sampling into Geometry.
-  vec3 back_pos;
-  calcLineTrace(pos, displacement, flags, b, &back_pos, line_trace);
-
-  // Finally, sample the field at this back position.
-  if (!sample_outside_fluid) {
-    return src.getInterpolatedWithFluidHi(flags, back_pos, order_space, b);
-  } else {
-    return src.getInterpolatedHi(back_pos, order_space, b);
-  }
-}
-
-inline float SemiLagrange(
-    FlagGrid& flags, MACGrid& vel, RealGrid& src, 
-    float dt, bool is_levelset, int order_space,
-    int32_t i, int32_t j, int32_t k, int32_t b) {
-  const float p5 = static_cast<float>(0.5);
-  vec3 pos =
-      (vec3((float)i + p5, (float)j + p5, (float)k + p5) -
-       vel.getCentered(i, j, k, b) * dt);
-  return src.getInterpolatedHi(pos, order_space, b);
-}
-
-inline float MacCormackCorrect(
-    FlagGrid& flags, const RealGrid& old,
-    const RealGrid& fwd, const RealGrid& bwd,
-    const float strength, bool is_levelset, int32_t i, int32_t j, int32_t k,
-    int32_t b) {
+float MacCormackCorrect
+(
+    FlagGrid& flags,
+    const RealGrid& old,
+    const RealGrid& fwd,
+    const RealGrid& bwd,
+    const float strength,
+    bool is_levelset,
+    int32_t i, int32_t j, int32_t k, int32_t b
+) {
   float dst = fwd(i, j, k, b);
 
   if (flags.isFluid(i, j, k, b)) {
@@ -217,7 +100,7 @@ inline float MacCormackCorrect(
   return dst;
 }
 
-inline void getMinMax(float& minv, float& maxv, const float& val) {
+void getMinMax(float& minv, float& maxv, const float& val) {
   if (val < minv) {
     minv = val;
   }
@@ -226,96 +109,24 @@ inline void getMinMax(float& minv, float& maxv, const float& val) {
   }
 }
 
-inline float clamp(const float val, const float min, const float max) {
+float clamp(const float val, const float min, const float max) {
   return std::min<float>(max, std::max<float>(min, val));
 }
 
-inline float doClampComponent(
-    const Int3& gridSize, float dst, const RealGrid& orig, float fwd,
-    const vec3& pos, const vec3& vel, int32_t b) { 
-  float minv = std::numeric_limits<float>::max();
-  float maxv = -std::numeric_limits<float>::max();
-
-  // forward (and optionally) backward
-  Int3 positions[2];
-  positions[0] = toInt3(pos - vel);
-  positions[1] = toInt3(pos + vel);
-
-  for (int32_t l = 0; l < 2; ++l) {
-    Int3& curr_pos = positions[l];
-
-    // clamp forward lookup to grid 
-    const int32_t i0 = clamp(curr_pos.x, 0, gridSize.x - 1);
-    const int32_t j0 = clamp(curr_pos.y, 0, gridSize.y - 1); 
-    const int32_t k0 = clamp(curr_pos.z, 0, 
-                             (orig.is_3d() ? (gridSize.z - 1) : 1));
-    const int32_t i1 = i0 + 1;
-    const int32_t j1 = j0 + 1;
-    const int32_t k1 = (orig.is_3d() ? (k0 + 1) : k0);
-    if (!orig.isInBounds(Int3(i0, j0, k0), 0) ||
-        !orig.isInBounds(Int3(i1, j1, k1), 0)) {
-      return fwd;
-    }
-
-    // find min/max around source pos
-    getMinMax(minv, maxv, orig(i0, j0, k0, b));
-    getMinMax(minv, maxv, orig(i1, j0, k0, b));
-    getMinMax(minv, maxv, orig(i0, j1, k0, b));
-    getMinMax(minv, maxv, orig(i1, j1, k0, b));
-
-    if (orig.is_3d()) {
-      getMinMax(minv, maxv, orig(i0, j0, k1, b));
-      getMinMax(minv, maxv, orig(i1, j0, k1, b));
-      getMinMax(minv, maxv, orig(i0, j1, k1, b)); 
-      getMinMax(minv, maxv, orig(i1, j1, k1, b));
-    }
-  }
-
-  dst = clamp(dst, minv, maxv);
-  return dst;
-}
-
-inline float MacCormackClamp(
-    FlagGrid& flags, MACGrid& vel, float dval,
-    const RealGrid& orig, const RealGrid& fwd, float dt,
-    int32_t i, int32_t j, int32_t k, int32_t b) {
-  Int3 gridUpper = flags.getSize() - 1;
-
-  dval = doClampComponent(gridUpper, dval, orig, fwd(i, j, k, b),
-                          vec3(i, j, k),
-                          vel.getCentered(i, j, k, b) * dt, b);
-
-  // Lookup forward/backward, round to closest NB.
-  Int3 pos_fwd = toInt3(vec3(i, j, k) +
-                        vec3(0.5, 0.5, 0.5) -
-                        vel.getCentered(i, j, k, b) * dt);
-  Int3 pos_bwd = toInt3(vec3(i, j, k) +
-                        vec3(0.5, 0.5, 0.5) +
-                        vel.getCentered(i, j, k, b) * dt);
-
-  // Test if lookups point out of grid or into obstacle (note doClampComponent
-  // already checks sides, below is needed for valid flags access).
-  if (pos_fwd.x < 0 || pos_fwd.y < 0 || pos_fwd.z < 0 ||
-      pos_bwd.x < 0 || pos_bwd.y < 0 || pos_bwd.z < 0 ||
-      pos_fwd.x > gridUpper.x || pos_fwd.y > gridUpper.y ||
-      ((pos_fwd.z > gridUpper.z) && flags.is_3d()) ||
-      pos_bwd.x > gridUpper.x || pos_bwd.y > gridUpper.y ||
-      ((pos_bwd.z > gridUpper.z) && flags.is_3d()) ||
-      flags.isObstacle(pos_fwd, b) || flags.isObstacle(pos_bwd, b) ) {
-    dval = fwd(i, j, k, b);
-  }
-
-  return dval;
-}
-
-// Our version is a little different. It is a search around a single input
+// FluidNet clamp routine. It is a search around a single input
 // position for min and max values. If no valid values are found, then
 // false is returned (indicating that a clamp shouldn't be performed) otherwise
 // true is returned (and the clamp min and max bounds are set).
-static inline float getClampBounds(
-    RealGrid src, vec3 pos, const int32_t b,
-    FlagGrid flags, const bool sample_outside_fluid, float* clamp_min,
-    float* clamp_max) {
+static float getClampBounds
+(
+    RealGrid src,
+    vec3 pos,
+    const int32_t b,
+    FlagGrid flags,
+    const bool sample_outside_fluid,
+    float* clamp_min,
+    float* clamp_max
+) {
   float minv = std::numeric_limits<float>::infinity();
   float maxv = -std::numeric_limits<float>::infinity();
 
@@ -357,13 +168,19 @@ static inline float getClampBounds(
   }
 }
 
-
-inline float MacCormackClampOurs(
-    FlagGrid& flags, MACGrid& vel,
-    const RealGrid& dst, const RealGrid& src,
-    const RealGrid& fwd, float dt, const VecGrid& fwd_pos,
-    const VecGrid& bwd_pos, const bool sample_outside_fluid,
-    int32_t i, int32_t j, int32_t k, int32_t b) {
+float MacCormackClampFluidNet
+(
+    FlagGrid& flags,
+    MACGrid& vel,
+    const RealGrid& dst,
+    const RealGrid& src,
+    const RealGrid& fwd,
+    float dt,
+    const VecGrid& fwd_pos,
+    const VecGrid& bwd_pos,
+    const bool sample_outside_fluid,
+    int32_t i, int32_t j, int32_t k, int32_t b
+) {
 
    // Calculate the clamp bounds.
   float clamp_min = std::numeric_limits<float>::infinity();
@@ -374,13 +191,8 @@ inline float MacCormackClampOurs(
   const bool do_clamp_fwd = getClampBounds(
       src, pos, b, flags, sample_outside_fluid, &clamp_min, &clamp_max);
 
-  // Calculate the clamp bounds around the backward position. Recall that
-  // the bwd value was sampled on the fwd output (so src is replaced with fwd).
-  // EDIT(tompson): According to "An unconditionally stable maccormack method"
+  // FluidNet: According to "An unconditionally stable maccormack method"
   // only a forward search is required.
-  // pos = bwd_pos(i, j, k, b);
-  // const bool do_clamp_bwd = getClampBounds(
-  //     fwd, pos, b, flags, sample_outside_fluid, &clamp_min, &clamp_max);
 
   float dval;
   if (!do_clamp_fwd) {
@@ -396,33 +208,25 @@ inline float MacCormackClampOurs(
   return dval;
 }
 
-static int Main_advectScalar(lua_State *L) {
-  // Get the args from the lua stack. NOTE: We do ALL arguments (size checking)
-  // on the lua stack. We also treat 2D advection as 3D (with depth = 1) and
+void advectScalar
+(
+    float dt,
+    at::Tensor* tensor_flags,
+    at::Tensor* tensor_u,
+    at::Tensor* tensor_s,
+    at::Tensor* tensor_s_dst,
+    at::Tensor* tensor_fwd,
+    at::Tensor* tensor_bwd,
+    at::Tensor* fwd_pos,
+    at::Tensor* bwd_pos,
+    const bool is_3d,
+    const std::string method_str
+    const int32_t boundary_width
+    const bool sample_outside_fluid
+    const float maccormack_strength
+) {
+  // TODO: check sizes (see lua). We also treat 2D advection as 3D (with depth = 1) and
   // no 'w' component for velocity.
-  float dt = static_cast<float>(lua_tonumber(L, 1));
-  THTensor* tensor_s =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 2, torch_Tensor));
-  THTensor* tensor_u =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 3, torch_Tensor));
-  THTensor* tensor_flags =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 4, torch_Tensor));
-  THTensor* tensor_fwd =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 5, torch_Tensor));
-  THTensor* tensor_bwd =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 6, torch_Tensor));
-  const bool is_3d = static_cast<bool>(lua_toboolean(L, 7));
-  const std::string method_str = static_cast<std::string>(lua_tostring(L, 8));
-  THTensor* tensor_fwd_pos =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 9, torch_Tensor));
-  THTensor* tensor_bwd_pos =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 10, torch_Tensor));
-  const int32_t boundary_width = static_cast<int32_t>(lua_tointeger(L, 11));
-  const bool sample_outside_fluid = static_cast<bool>(lua_toboolean(L, 12));
-  const float maccormack_strength = static_cast<float>(lua_tonumber(L, 13));
-  THTensor* tensor_s_dst =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 14, torch_Tensor));
-
   FlagGrid flags(tensor_flags, is_3d);
   MACGrid vel(tensor_u, is_3d);
   RealGrid src(tensor_s, is_3d);
@@ -450,8 +254,7 @@ static int Main_advectScalar(lua_State *L) {
   for (int32_t b = 0; b < nbatch; b++) {
     const int32_t bnd = 1;
     int32_t k, j, i;
-    RealGrid* cur_dst = (method == ADVECT_MACCORMACK_MANTA ||
-                                   method == ADVECT_MACCORMACK_OURS) ?
+    RealGrid* cur_dst = (method == ADVECT_MACCORMACK_FLUIDNET) ?
                                    &fwd : &dst;
 
 #pragma omp parallel for collapse(3) private(k, j, i)
@@ -469,28 +272,14 @@ static int Main_advectScalar(lua_State *L) {
 
           // Forward step.
           float val;
-          if (method == ADVECT_EULER_MANTA ||
-              method == ADVECT_MACCORMACK_MANTA) {
-            // Use manta's codepath.
-            val = SemiLagrange(
-                flags, vel, src, dt, is_levelset, order_space, i, j, k, b);
-          } else if (method == ADVECT_RK2_OURS) {
-            // Use our own codepath (very different!).
-            val = SemiLagrangeRK2Ours(
+          if (method == ADVECT_EULER_FLUIDNET) {
+            val = SemiLagrangeEulerFluidNet(
                 flags, vel, src, dt, order_space, i, j, k, b, line_trace,
                 sample_outside_fluid);
-          } else if (method == ADVECT_EULER_OURS) {
-            val = SemiLagrangeEulerOurs(
-                flags, vel, src, dt, order_space, i, j, k, b, line_trace,
-                sample_outside_fluid);
-          } else if (method == ADVECT_MACCORMACK_OURS) {
-            val = SemiLagrangeEulerOursSavePos(
+          } else if (method == ADVECT_MACCORMACK_FLUIDNET) {
+            val = SemiLagrangeEulerFluidNetSavePos(
                 flags, vel, src, dt, order_space, i, j, k, b, line_trace,
                 sample_outside_fluid, fwd_pos);
-          } else if (method == ADVECT_RK3_OURS) {
-            val = SemiLagrangeRK3Ours(
-                flags, vel, src, dt, order_space, i, j, k, b, line_trace,
-                sample_outside_fluid);
           } else {
             AT_ERROR("Advection method not supported!");
           }
@@ -500,7 +289,7 @@ static int Main_advectScalar(lua_State *L) {
       }
     }
 
-    if (method != ADVECT_MACCORMACK_MANTA && method != ADVECT_MACCORMACK_OURS) {
+    if (method != ADVECT_MACCORMACK_FLUIDNET) {
       // We're done. The forward Euler step is already in the output array.
     } else {
       // Otherwise we need to do the backwards step (which is a SemiLagrange
@@ -519,11 +308,8 @@ static int Main_advectScalar(lua_State *L) {
             } 
 
             // Backwards step.
-            if (method == ADVECT_MACCORMACK_MANTA) {
-              bwd(i, j, k, b) = SemiLagrange(flags, vel, fwd, -dt, is_levelset,
-                                             order_space, i, j, k, b);
-            } else {
-              bwd(i, j, k, b) = SemiLagrangeEulerOursSavePos(
+            if (method == ADVECT_MACCORMACK_FLUIDNET) {
+              bwd(i, j, k, b) = SemiLagrangeEulerFluidNetSavePos(
                   flags, vel, fwd, -dt,  order_space, i, j, k, b, line_trace,
                   sample_outside_fluid, bwd_pos);
             }
@@ -553,12 +339,8 @@ static int Main_advectScalar(lua_State *L) {
                 (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
               continue;
             }
-            if (method == ADVECT_MACCORMACK_MANTA) {
-              const float dval = dst(i, j, k, b);
-              dst(i, j, k, b) = MacCormackClamp(
-                  flags, vel, dval, src, fwd, dt, i, j, k, b);
-            } else {
-              dst(i, j, k, b) = MacCormackClampOurs(
+            if (method == ADVECT_MACCORMACK_FLUIDNET) {
+              dst(i, j, k, b) = MacCormackClampFluidNet(
                   flags, vel, dst, src, fwd, dt, fwd_pos, bwd_pos,
                   sample_outside_fluid, i, j, k, b);  
             }
@@ -568,14 +350,13 @@ static int Main_advectScalar(lua_State *L) {
     }
   }
 
-  return 0;  // Recall: number of return values on the lua stack.
 }
 
 // *****************************************************************************
 // advectVel
 // *****************************************************************************
 
-inline vec3 SemiLagrangeEulerOursMAC(
+vec3 SemiLagrangeEulerFluidNetMAC(
     FlagGrid& flags, MACGrid& vel, MACGrid& src,
     float dt, int order_space, const bool line_trace, int32_t i, int32_t j,
     int32_t k, int32_t b) {
@@ -590,7 +371,7 @@ inline vec3 SemiLagrangeEulerOursMAC(
                            static_cast<float>(j) + 0.5,
                            static_cast<float>(k) + 0.5);
 
-  // TODO(tompson): We floatly want to clamp to the SMALLEST of the steps in each
+  // FluidNet: We floatly want to clamp to the SMALLEST of the steps in each
   // dimension, however this is OK for now (because doing so would expensive)...
   vec3 xpos;
   calcLineTrace(pos, vel.getAtMACX(i, j, k, b) * (-dt), flags, b, &xpos,
@@ -615,7 +396,7 @@ inline vec3 SemiLagrangeEulerOursMAC(
   return vec3(vx, vy, vz);
 }
 
-inline vec3 SemiLagrangeMAC(
+vec3 SemiLagrangeMAC(
     FlagGrid& flags, MACGrid& vel, MACGrid& src,
     float dt, int order_space, int32_t i, int32_t j, int32_t k, int32_t b) {
   // Get correct velocity at MAC position.
@@ -641,7 +422,7 @@ inline vec3 SemiLagrangeMAC(
   return vec3(vx, vy, vz);
 }
 
-inline vec3 MacCormackCorrectMAC(
+vec3 MacCormackCorrectMAC(
     FlagGrid& flags, const MACGrid& old,
     const MACGrid& fwd, const MACGrid& bwd,
     const float strength, int32_t i, int32_t j, int32_t k, int32_t b) {
@@ -683,7 +464,7 @@ inline vec3 MacCormackCorrectMAC(
 }
 
 template <int32_t c>
-inline float doClampComponentMAC(
+float doClampComponentMAC(
     const Int3& gridSize, float dst, const MACGrid& orig,
     float fwd, const vec3& pos, const vec3& vel,
     int32_t b) {
@@ -729,7 +510,7 @@ inline float doClampComponentMAC(
   return dst;
 }
 
-inline vec3 MacCormackClampMAC(
+vec3 MacCormackClampMAC(
     FlagGrid& flags, MACGrid& vel,
     vec3 dval, const MACGrid& orig,
     const MACGrid& fwd, float dt,
@@ -757,36 +538,27 @@ inline vec3 MacCormackClampMAC(
   return dval;
 }
 
-static int Main_advectVel(lua_State *L) {
-  // Get the args from the lua stack. NOTE: We do ALL arguments (size checking)
-  // on the lua stack. We also treat 2D advection as 3D (with depth = 1) and
+void advectVel
+(
+    float dt,
+    at::Tensor* tensor_flags,
+    at::Tensor* tensor_u,
+    at::Tensor* tensor_u_dst,
+    at::Tensor* tensor_fwd,
+    at::Tensor* tensor_bwd,
+    const bool is_3d,
+    const std::string method_str
+    const int32_t boundary_width
+    const float maccormack_strength
+
+) {
+  // TODO: Check sizes. We also treat 2D advection as 3D (with depth = 1) and
   // no 'w' component for velocity.
-  const float dt = static_cast<float>(lua_tonumber(L, 1));
-  THTensor* tensor_u =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 2, torch_Tensor));
-  THTensor* tensor_flags =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 3, torch_Tensor));
-  THTensor* tensor_fwd =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 4, torch_Tensor));
-  THTensor* tensor_bwd =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 5, torch_Tensor));
-  const bool is_3d = static_cast<bool>(lua_toboolean(L, 6));
-  const std::string method_str = static_cast<std::string>(lua_tostring(L, 7));
-  const int32_t boundary_width = static_cast<int32_t>(lua_tointeger(L, 8));
-  const float maccormack_strength = static_cast<float>(lua_tonumber(L, 9));
-  THTensor* tensor_u_dst =
-      reinterpret_cast<THTensor*>(luaT_checkudata(L, 10, torch_Tensor));
 
-  AdvectMethod method = StringToAdvectMethod(L, method_str);
-
-  // TODO(tompson): Implement RK2 and RK3 methods.
-  if (method == ADVECT_RK2_OURS || method == ADVECT_RK3_OURS) {
-    // We do not yet have an RK2 or RK3 implementation. Use Maccormack.
-    method = ADVECT_MACCORMACK_OURS;
-  }
+  AdvectMethod method = StringToAdvectMethod(method_str);
 
   const int order_space = 1;
-  // A full line trace along every ray is expensive but correct (applies to our
+  // A full line trace along every ray is expensive but correct (applies to FluidNet
   // methods only).
   const bool line_trace = true;
 
@@ -807,8 +579,7 @@ static int Main_advectVel(lua_State *L) {
   const int32_t nbatch = flags.nbatch();
 
   for (int32_t b = 0; b < nbatch; b++) {
-    MACGrid* cur_dst = (method == ADVECT_MACCORMACK_MANTA ||
-                                  method == ADVECT_MACCORMACK_OURS) ?
+    MACGrid* cur_dst = (method == ADVECT_MACCORMACK_FLUIDNET) ?
                                   &fwd : &dst;
     int32_t k, j, i;
     const int32_t bnd = 1;
@@ -826,13 +597,13 @@ static int Main_advectVel(lua_State *L) {
 
           // Forward step.
           vec3 val;
-          if (method == ADVECT_EULER_MANTA ||
-              method == ADVECT_MACCORMACK_MANTA) {
-            val = SemiLagrangeMAC(
-                flags, vel, orig, dt, order_space, i, j, k, b);
-          } else {
+          if (method == ADVECT_EULER_FLUIDNET ||
+              method == ADVECT_MACCORMACK_FLUIDNET) {
             val = SemiLagrangeEulerOursMAC(
                 flags, vel, orig, dt, order_space, line_trace, i, j, k, b);
+          }
+          else {
+          std::cout << "No defined method for MAC advection" << std::endl;
           }
 
           cur_dst->setSafe(i, j, k, b, val);  // Store in the output array
@@ -840,7 +611,7 @@ static int Main_advectVel(lua_State *L) {
       }
     }
 
-    if (method != ADVECT_MACCORMACK_OURS && method != ADVECT_MACCORMACK_MANTA) {
+    if (method != ADVECT_MACCORMACK_FLUIDNET) {
       // We're done. The forward Euler step is already in the output array.
     } else {
       // Otherwise we need to do the backwards step (which is a SemiLagrange
@@ -858,10 +629,7 @@ static int Main_advectVel(lua_State *L) {
             } 
 
             // Backwards step.
-            if (method == ADVECT_MACCORMACK_MANTA) {
-              bwd.setSafe(i, j, k, b, SemiLagrangeMAC(
-                  flags, vel, fwd, -dt, order_space, i, j, k, b));
-            } else {
+            if (method == ADVECT_MACCORMACK_FLUIDNET) {
               bwd.setSafe(i, j, k, b, SemiLagrangeEulerOursMAC(
                   flags, vel, fwd, -dt, order_space, line_trace, i, j, k, b));
             }
@@ -900,5 +668,4 @@ static int Main_advectVel(lua_State *L) {
     }
   }
 
-  return 0;  // Recall: number of return values on the lua stack.
 }

@@ -3,6 +3,8 @@
 #include <limits>
 #include "ATen/ATen.h"
 #include "quadrants.h"
+#include "calc_line_trace.h"
+
 
 // We never want positions to go exactly to the border or exactly to the edge
 // of an occupied piece of geometry. Therefore all rays will be truncated by

@@ -1,7 +1,3 @@
-#include <iostream>
-#include <sstream>
-#include <mutex>
-
 #include "grid.h"
 #include "stack_trace.h"
 
@@ -35,6 +31,10 @@ bool GridBase::isInBounds(const Int3& p, int bnd) const {
 bool GridBase::isInBounds(const vec3& p,
                                     int bnd) const {
   return isInBounds(toInt3(p), bnd);
+}
+
+std::ostream& operator<<(std::ostream& os , const GridBase& outGrid) {
+  os << *(outGrid.tensor_);
 }
 
 int32_t GridBase::index5d(int32_t i, int32_t j, int32_t k,
