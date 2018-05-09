@@ -1,4 +1,4 @@
-#include "grid.h"
+#include "../grid/grid.h"
 
 void GetPixelCenter(const vec3& pos, int32_t* ix,
                     int32_t* iy, int32_t* iz);

@@ -2,84 +2,60 @@
 
 #include <iostream>
 #include <sstream>
-#include <mutex>
 
 #include "ATen/ATen.h"
-#include "int3.h"
-#include "vec3.h"
 #include "cell_type.h"
+#include "bool_conversion.h"
 
 class GridBase {
 public:
-  explicit GridBase(at::Tensor* grid, bool is_3d);
+  explicit GridBase(at::Type & T, at::Tensor & grid, bool is_3d);
 
-  int32_t nbatch() const { return tensor_->size(0); }
-  int32_t nchan() const { return tensor_->size(1); }
-  int32_t zsize() const { return tensor_->size(2); }
-  int32_t ysize() const { return tensor_->size(3); }
-  int32_t xsize() const { return tensor_->size(4); }
+  int64_t nbatch() const { return tensor_.size(0); }
+  int64_t nchan() const  { return tensor_.size(1); }
+  int64_t zsize() const  { return tensor_.size(2); }
+  int64_t ysize() const  { return tensor_.size(3); }
+  int64_t xsize() const  { return tensor_.size(4); }
 
-  int32_t bstride() const { return tensor_->stride(0); }
-  int32_t cstride() const { return tensor_->stride(1); }
-  int32_t zstride() const { return tensor_->stride(2); }
-  int32_t ystride() const { return tensor_->stride(3); }
-  int32_t xstride() const { return tensor_->stride(4); }
+  int64_t numel() const { return xsize() * ysize() * zsize() * nchan()
+			         * nbatch(); }  
 
   bool is_3d() const { return is_3d_; }
-  Int3 getSize() const { return Int3(xsize(), ysize(), zsize()); }
+  Int3 getSize() const { return Int3(xsize(), ysize(), zsize()); } 
 
   float getDx() const;
 
   bool isInBounds(const Int3& p, int bnd) const;
 
-  bool isInBounds(const vec3& p, int bnd) const;
- 
+  bool isInBounds(const Vec3& p, int bnd) const 
+  { return isInBounds(toInt3(p), bnd); }
+
   friend std::ostream& operator<<(std::ostream& os, const GridBase& outGrid);
-
+  
 private:
-  at::Tensor* const tensor_;
-  float* const p_grid_;
+  at::Tensor tensor_;
+  at::Type & T_;
   const bool is_3d_; 
-  static std::mutex mutex_;
-
-  // The indices i, j, k, c, b are x, y, z, chan and batch respectively.
-  int32_t index5d(int32_t i, int32_t j, int32_t k, int32_t c, int32_t b) const;
 
 protected:
   // Use operator() methods in child classes to get at data.
-  // Note: if the storage is offset (i.e. because we've selected along the
-  // batch dim), this is taken care of in  at::Tensor.data()(i.e. it returns
-  // self->storage->data + self->storageOffset).
-  float& data(int32_t i, int32_t j, int32_t k, int32_t c, int32_t b) {
-    return p_grid_[index5d(i, j, k, c, b)];
-  }
-
   float data(int32_t i, int32_t j, int32_t k, int32_t c, int32_t b) const {
-    return p_grid_[index5d(i, j, k, c, b)];
-  }
-
-  float& data(const Int3& pos, int32_t c, int32_t b) {
-    return data(pos.x, pos.y, pos.z, c, b);
+    return at::Scalar(tensor_[b][c][k][j][i]).toFloat();
   }
 
   float data(const Int3& pos, int32_t c, int32_t b) const {
-    return data(pos.x, pos.y, pos.z, c, b);
+    return at::Scalar(tensor_[b][c][pos.z][pos.y][pos.x]).toFloat();
   }
 
   void buildIndex(int32_t& xi, int32_t& yi, int32_t& zi,
                   float& s0, float& t0, float& f0,
                   float& s1, float& t1, float& f1,
-                  const vec3& pos) const;
+                  const Vec3& pos) const;
 };
-
 
 class FlagGrid : public GridBase {
 public:
-  explicit FlagGrid(at::Tensor* grid, bool is_3d);
-
-  float& operator()(int32_t i, int32_t j, int32_t k, int32_t b) {
-    return data(i, j, k, 0, b);
-  }
+  explicit FlagGrid(at::Type & T, at::Tensor & grid, bool is_3d);
 
   float operator()(int32_t i, int32_t j, int32_t k, int32_t b) const {
     return data(i, j, k, 0, b);
@@ -90,11 +66,7 @@ public:
   }
 
   bool isFluid(const Int3& pos, int32_t b) const {
-    return isFluid(pos.x, pos.y, pos.z, b);
-  }
-
-  bool isFluid(const vec3& pos, int32_t b) const {
-    return isFluid((int32_t)pos.x, (int32_t)pos.y, (int32_t)pos.z, b);
+    return static_cast<int>(data(pos.x, pos.y, pos.z, 0, b)) & TypeFluid;
   }
 
   bool isObstacle(int32_t i, int32_t j, int32_t k, int32_t b) const {
@@ -102,16 +74,13 @@ public:
   }
 
   bool isObstacle(const Int3& pos, int32_t b) const {
-    return isObstacle(pos.x, pos.y, pos.z, b);
+    return static_cast<int>(data(pos.x, pos.y, pos.z, 0, b)) & TypeObstacle;
   }
-
-  bool isObstacle(const vec3& pos, int32_t b) const {
-    return isObstacle((int32_t)pos.x, (int32_t)pos.y, (int32_t)pos.z, b);
-  }
-
-  bool isStick(int32_t i, int32_t j, int32_t k, int32_t b) const {
+ 
+ bool isStick(int32_t i, int32_t j, int32_t k, int32_t b) const {
     return static_cast<int>(data(i, j, k, 0, b)) & TypeStick;
   }
+  
   bool isEmpty(int32_t i, int32_t j, int32_t k, int32_t b) const {
     return static_cast<int>(data(i, j, k, 0, b)) & TypeEmpty;
   }
@@ -126,28 +95,22 @@ public:
   }
 };
 
-// FloatGrid is supposed to be like Grid<Real> in Manta.
 class FloatGrid : public GridBase {
 public:
-  explicit FloatGrid(at::Tensor* grid, bool is_3d);
-
-  float& operator()(int32_t i, int32_t j, int32_t k, int32_t b) {
-    return data(i, j, k, 0, b);
-  }
+  explicit FloatGrid(at::Type & T, at::Tensor & grid, bool is_3d);
 
   float operator()(int32_t i, int32_t j, int32_t k, int32_t b) const {
     return data(i, j, k, 0, b);
   };
 
-  float getInterpolatedHi(const vec3& pos, int32_t order,
-                         int32_t b) const;
-  float getInterpolatedWithFluidHi(const FlagGrid& flag,
-                                  const vec3& pos, int32_t order,
-                                  int32_t b) const;
+  float getInterpolatedHi(const Vec3& pos, int32_t order, int32_t b) const;
+  
+  float getInterpolatedWithFluidHi(const FlagGrid& flag, const Vec3& pos,
+                                  int32_t order, int32_t b) const;
 
-  float interpol(const vec3& pos, int32_t b) const;
+  float interpol(const Vec3& pos, int32_t b) const;
   float interpolWithFluid(const FlagGrid& flag,
-                         const vec3& pos, int32_t b) const;
+                         const Vec3& pos, int32_t b) const;
 private:
   // Interpol1DWithFluid will return:
   // 1. is_fluid = false if a and b are not fluid.
@@ -160,6 +123,7 @@ private:
                                   bool* is_fluid_ab, float* val_ab);
 };
 
+/*
 class MACGrid : public GridBase {
 public:
   explicit MACGrid(at::Tensor* grid, bool is_3d);
@@ -242,4 +206,4 @@ public:
   vec3 curl(int32_t i, int32_t j, int32_t k, int32_t b);
 };
 
-
+*/

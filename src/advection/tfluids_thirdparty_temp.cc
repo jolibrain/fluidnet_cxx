@@ -21,7 +21,7 @@
 // *****************************************************************************
 
 inline real SemiLagrangeRK2Ours(
-    tfluids_(FlagGrid)& flags, tfluids_(MACGrid)& vel, tfluids_(RealGrid)& src,
+    tfluids_(FlagGrid)& flags, tfluids_(MACGrid)& vel, tfluids_(FloatGrid)& src,
     real dt, int order_space, int32_t i, int32_t j, int32_t k, int32_t b,
     const bool line_trace, const bool sample_outside_fluid) {
   if (!flags.isFluid(i, j, k, b)) {
@@ -76,7 +76,7 @@ inline real SemiLagrangeRK2Ours(
 }
 
 inline real SemiLagrangeRK3Ours(
-    tfluids_(FlagGrid)& flags, tfluids_(MACGrid)& vel, tfluids_(RealGrid)& src,
+    tfluids_(FlagGrid)& flags, tfluids_(MACGrid)& vel, tfluids_(FloatGrid)& src,
     real dt, int order_space, int32_t i, int32_t j, int32_t k, int32_t b,
     const bool line_trace, const bool sample_outside_fluid) {
   if (!flags.isFluid(i, j, k, b)) {
@@ -150,7 +150,7 @@ inline real SemiLagrangeRK3Ours(
 // particle trace position. This is used for our maccormack routine (we'll do
 // a local search around these positions in our clamp routine).
 inline real SemiLagrangeEulerOursSavePos(
-    tfluids_(FlagGrid)& flags, tfluids_(MACGrid)& vel, tfluids_(RealGrid)& src,
+    tfluids_(FlagGrid)& flags, tfluids_(MACGrid)& vel, tfluids_(FloatGrid)& src,
     real dt, int order_space, int32_t i, int32_t j, int32_t k, int32_t b,
     const bool line_trace, const bool sample_outside_fluid,
     tfluids_(VecGrid)& pos) {
@@ -181,7 +181,7 @@ inline real SemiLagrangeEulerOursSavePos(
 }
 
 inline real SemiLagrangeEulerOurs(
-    tfluids_(FlagGrid)& flags, tfluids_(MACGrid)& vel, tfluids_(RealGrid)& src,
+    tfluids_(FlagGrid)& flags, tfluids_(MACGrid)& vel, tfluids_(FloatGrid)& src,
     real dt, int order_space, int32_t i, int32_t j, int32_t k, int32_t b,
     const bool line_trace, const bool sample_outside_fluid) {
   if (!flags.isFluid(i, j, k, b)) {
@@ -209,7 +209,7 @@ inline real SemiLagrangeEulerOurs(
 }
 
 inline real SemiLagrange(
-    tfluids_(FlagGrid)& flags, tfluids_(MACGrid)& vel, tfluids_(RealGrid)& src, 
+    tfluids_(FlagGrid)& flags, tfluids_(MACGrid)& vel, tfluids_(FloatGrid)& src, 
     real dt, bool is_levelset, int order_space,
     int32_t i, int32_t j, int32_t k, int32_t b) {
   const real p5 = static_cast<real>(0.5);
@@ -220,8 +220,8 @@ inline real SemiLagrange(
 }
 
 inline real MacCormackCorrect(
-    tfluids_(FlagGrid)& flags, const tfluids_(RealGrid)& old,
-    const tfluids_(RealGrid)& fwd, const tfluids_(RealGrid)& bwd,
+    tfluids_(FlagGrid)& flags, const tfluids_(FloatGrid)& old,
+    const tfluids_(FloatGrid)& fwd, const tfluids_(FloatGrid)& bwd,
     const real strength, bool is_levelset, int32_t i, int32_t j, int32_t k,
     int32_t b) {
   real dst = fwd(i, j, k, b);
@@ -247,7 +247,7 @@ inline real clamp(const real val, const real min, const real max) {
 }
 
 inline real doClampComponent(
-    const Int3& gridSize, real dst, const tfluids_(RealGrid)& orig, real fwd,
+    const Int3& gridSize, real dst, const tfluids_(FloatGrid)& orig, real fwd,
     const tfluids_(vec3)& pos, const tfluids_(vec3)& vel, int32_t b) { 
   real minv = std::numeric_limits<real>::max();
   real maxv = -std::numeric_limits<real>::max();
@@ -293,7 +293,7 @@ inline real doClampComponent(
 
 inline real MacCormackClamp(
     tfluids_(FlagGrid)& flags, tfluids_(MACGrid)& vel, real dval,
-    const tfluids_(RealGrid)& orig, const tfluids_(RealGrid)& fwd, real dt,
+    const tfluids_(FloatGrid)& orig, const tfluids_(FloatGrid)& fwd, real dt,
     int32_t i, int32_t j, int32_t k, int32_t b) {
   Int3 gridUpper = flags.getSize() - 1;
 
@@ -329,7 +329,7 @@ inline real MacCormackClamp(
 // false is returned (indicating that a clamp shouldn't be performed) otherwise
 // true is returned (and the clamp min and max bounds are set).
 static inline real getClampBounds(
-    tfluids_(RealGrid) src, tfluids_(vec3) pos, const int32_t b,
+    tfluids_(FloatGrid) src, tfluids_(vec3) pos, const int32_t b,
     tfluids_(FlagGrid) flags, const bool sample_outside_fluid, real* clamp_min,
     real* clamp_max) {
   real minv = std::numeric_limits<real>::infinity();
@@ -376,8 +376,8 @@ static inline real getClampBounds(
 
 inline real MacCormackClampOurs(
     tfluids_(FlagGrid)& flags, tfluids_(MACGrid)& vel,
-    const tfluids_(RealGrid)& dst, const tfluids_(RealGrid)& src,
-    const tfluids_(RealGrid)& fwd, real dt, const tfluids_(VecGrid)& fwd_pos,
+    const tfluids_(FloatGrid)& dst, const tfluids_(FloatGrid)& src,
+    const tfluids_(FloatGrid)& fwd, real dt, const tfluids_(VecGrid)& fwd_pos,
     const tfluids_(VecGrid)& bwd_pos, const bool sample_outside_fluid,
     int32_t i, int32_t j, int32_t k, int32_t b) {
 
@@ -441,12 +441,12 @@ static int tfluids_(Main_advectScalar)(lua_State *L) {
 
   tfluids_(FlagGrid) flags(tensor_flags, is_3d);
   tfluids_(MACGrid) vel(tensor_u, is_3d);
-  tfluids_(RealGrid) src(tensor_s, is_3d);
-  tfluids_(RealGrid) dst(tensor_s_dst, is_3d);
+  tfluids_(FloatGrid) src(tensor_s, is_3d);
+  tfluids_(FloatGrid) dst(tensor_s_dst, is_3d);
 
   // The maccormack method also needs fwd and bwd temporary arrays.
-  tfluids_(RealGrid) fwd(tensor_fwd, is_3d);
-  tfluids_(RealGrid) bwd(tensor_bwd, is_3d); 
+  tfluids_(FloatGrid) fwd(tensor_fwd, is_3d);
+  tfluids_(FloatGrid) bwd(tensor_bwd, is_3d); 
   tfluids_(VecGrid) fwd_pos(tensor_fwd_pos, is_3d);
   tfluids_(VecGrid) bwd_pos(tensor_bwd_pos, is_3d);
 
@@ -466,7 +466,7 @@ static int tfluids_(Main_advectScalar)(lua_State *L) {
   for (int32_t b = 0; b < nbatch; b++) {
     const int32_t bnd = 1;
     int32_t k, j, i;
-    tfluids_(RealGrid)* cur_dst = (method == ADVECT_MACCORMACK_MANTA ||
+    tfluids_(FloatGrid)* cur_dst = (method == ADVECT_MACCORMACK_MANTA ||
                                    method == ADVECT_MACCORMACK_OURS) ?
                                    &fwd : &dst;
 
@@ -1018,7 +1018,7 @@ static int tfluids_(Main_velocityDivergenceForward)(lua_State *L) {
 
   tfluids_(FlagGrid) flags(tensor_flags, is_3d);
   tfluids_(MACGrid) vel(tensor_u, is_3d);
-  tfluids_(RealGrid) rhs(tensor_u_div, is_3d);
+  tfluids_(FloatGrid) rhs(tensor_u_div, is_3d);
 
 
   const int32_t xsize = flags.xsize();
@@ -1082,7 +1082,7 @@ static int tfluids_(Main_velocityUpdateForward)(lua_State *L) {
  
   tfluids_(FlagGrid) flags(tensor_flags, is_3d);
   tfluids_(MACGrid) vel(tensor_u, is_3d);
-  tfluids_(RealGrid) pressure(tensor_p, is_3d);
+  tfluids_(FloatGrid) pressure(tensor_p, is_3d);
 
   const int32_t xsize = flags.xsize();
   const int32_t ysize = flags.ysize();
@@ -1182,7 +1182,7 @@ static int tfluids_(Main_addBuoyancy)(lua_State *L) {
 
   tfluids_(FlagGrid) flags(tensor_flags, is_3d);
   tfluids_(MACGrid) vel(tensor_u, is_3d);
-  tfluids_(RealGrid) factor(tensor_density, is_3d);
+  tfluids_(FloatGrid) factor(tensor_density, is_3d);
 
   // Note: We wont use the tensor_strength temp space for the C++ version.
   // It's just as fast (and easy) for us to wrap in a vec3.
@@ -1361,7 +1361,7 @@ static int tfluids_(Main_vorticityConfinement)(lua_State *L) {
   tfluids_(MACGrid) vel(tensor_u, is_3d);
   tfluids_(VecGrid) centered(tensor_centered, is_3d);
   tfluids_(VecGrid) curl(tensor_curl, true);  // Alawys 3D.
-  tfluids_(RealGrid) curl_norm(tensor_curl_norm, is_3d);
+  tfluids_(FloatGrid) curl_norm(tensor_curl_norm, is_3d);
   tfluids_(VecGrid) force(tensor_force, is_3d);
   
   const int32_t xsize = flags.xsize();

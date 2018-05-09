@@ -1,5 +1,4 @@
-#include "calc_line_trace.h"
-#include "advect_type.h"
+#include "advection.h"
 
 // *****************************************************************************
 // advectScalar
@@ -9,7 +8,7 @@ float SemiLagrangeEulerFluidNet
 (
     FlagGrid& flags,
     MACGrid& vel,
-    RealGrid& src,
+    FloatGrid& src,
     float dt,
     int order_space,
     int32_t i, int32_t j, int32_t k, int32_t b,
@@ -47,7 +46,7 @@ float SemiLagrangeEulerFluidNetSavePos
 (
     FlagGrid& flags, 
     MACGrid& vel, 
-    RealGrid& src,
+    FloatGrid& src,
     float dt,
     int order_space,
     int32_t i, int32_t j, int32_t k, int32_t b,
@@ -84,9 +83,9 @@ float SemiLagrangeEulerFluidNetSavePos
 float MacCormackCorrect
 (
     FlagGrid& flags,
-    const RealGrid& old,
-    const RealGrid& fwd,
-    const RealGrid& bwd,
+    const FloatGrid& old,
+    const FloatGrid& fwd,
+    const FloatGrid& bwd,
     const float strength,
     bool is_levelset,
     int32_t i, int32_t j, int32_t k, int32_t b
@@ -100,26 +99,13 @@ float MacCormackCorrect
   return dst;
 }
 
-void getMinMax(float& minv, float& maxv, const float& val) {
-  if (val < minv) {
-    minv = val;
-  }
-  if (val > maxv) {
-    maxv = val;
-  }
-}
-
-float clamp(const float val, const float min, const float max) {
-  return std::min<float>(max, std::max<float>(min, val));
-}
-
 // FluidNet clamp routine. It is a search around a single input
 // position for min and max values. If no valid values are found, then
 // false is returned (indicating that a clamp shouldn't be performed) otherwise
 // true is returned (and the clamp min and max bounds are set).
 static float getClampBounds
 (
-    RealGrid src,
+    FloatGrid src,
     vec3 pos,
     const int32_t b,
     FlagGrid flags,
@@ -172,9 +158,9 @@ float MacCormackClampFluidNet
 (
     FlagGrid& flags,
     MACGrid& vel,
-    const RealGrid& dst,
-    const RealGrid& src,
-    const RealGrid& fwd,
+    const FloatGrid& dst,
+    const FloatGrid& src,
+    const FloatGrid& fwd,
     float dt,
     const VecGrid& fwd_pos,
     const VecGrid& bwd_pos,
@@ -217,28 +203,28 @@ void advectScalar
     at::Tensor* tensor_s_dst,
     at::Tensor* tensor_fwd,
     at::Tensor* tensor_bwd,
-    at::Tensor* fwd_pos,
-    at::Tensor* bwd_pos,
+    at::Tensor* tensor_fwd_pos,
+    at::Tensor* tensor_bwd_pos,
     const bool is_3d,
-    const std::string method_str
-    const int32_t boundary_width
-    const bool sample_outside_fluid
+    const std::string method_str,
+    const int32_t boundary_width,
+    const bool sample_outside_fluid,
     const float maccormack_strength
 ) {
   // TODO: check sizes (see lua). We also treat 2D advection as 3D (with depth = 1) and
   // no 'w' component for velocity.
   FlagGrid flags(tensor_flags, is_3d);
   MACGrid vel(tensor_u, is_3d);
-  RealGrid src(tensor_s, is_3d);
-  RealGrid dst(tensor_s_dst, is_3d);
+  FloatGrid src(tensor_s, is_3d);
+  FloatGrid dst(tensor_s_dst, is_3d);
 
   // The maccormack method also needs fwd and bwd temporary arrays.
-  RealGrid fwd(tensor_fwd, is_3d);
-  RealGrid bwd(tensor_bwd, is_3d); 
+  FloatGrid fwd(tensor_fwd, is_3d);
+  FloatGrid bwd(tensor_bwd, is_3d); 
   VecGrid fwd_pos(tensor_fwd_pos, is_3d);
   VecGrid bwd_pos(tensor_bwd_pos, is_3d);
 
-  AdvectMethod method = StringToAdvectMethod(L, method_str);
+  AdvectMethod method = StringToAdvectMethod(method_str);
 
   const bool is_levelset = false;  // We never advect them.
   const int order_space = 1;
@@ -254,7 +240,7 @@ void advectScalar
   for (int32_t b = 0; b < nbatch; b++) {
     const int32_t bnd = 1;
     int32_t k, j, i;
-    RealGrid* cur_dst = (method == ADVECT_MACCORMACK_FLUIDNET) ?
+    FloatGrid* cur_dst = (method == ADVECT_MACCORMACK_FLUIDNET) ?
                                    &fwd : &dst;
 
 #pragma omp parallel for collapse(3) private(k, j, i)
@@ -357,9 +343,13 @@ void advectScalar
 // *****************************************************************************
 
 vec3 SemiLagrangeEulerFluidNetMAC(
-    FlagGrid& flags, MACGrid& vel, MACGrid& src,
-    float dt, int order_space, const bool line_trace, int32_t i, int32_t j,
-    int32_t k, int32_t b) {
+    FlagGrid& flags,
+    MACGrid& vel,
+    MACGrid& src,
+    float dt,
+    int order_space,
+    const bool line_trace,
+    int32_t i, int32_t j, int32_t k, int32_t b) {
   if (!flags.isFluid(i, j, k, b)) {
     // Don't advect solid geometry!
     return src(i, j, k, b);
@@ -397,8 +387,12 @@ vec3 SemiLagrangeEulerFluidNetMAC(
 }
 
 vec3 SemiLagrangeMAC(
-    FlagGrid& flags, MACGrid& vel, MACGrid& src,
-    float dt, int order_space, int32_t i, int32_t j, int32_t k, int32_t b) {
+    FlagGrid& flags,
+    MACGrid& vel,
+    MACGrid& src,
+    float dt,
+    int order_space,
+    int32_t i, int32_t j, int32_t k, int32_t b) {
   // Get correct velocity at MAC position.
   // No need to shift xpos etc. as lookup field is also shifted.
   const vec3 pos(static_cast<float>(i) + 0.5,
@@ -423,9 +417,12 @@ vec3 SemiLagrangeMAC(
 }
 
 vec3 MacCormackCorrectMAC(
-    FlagGrid& flags, const MACGrid& old,
-    const MACGrid& fwd, const MACGrid& bwd,
-    const float strength, int32_t i, int32_t j, int32_t k, int32_t b) {
+    FlagGrid& flags,
+    const MACGrid& old,
+    const MACGrid& fwd,
+    const MACGrid& bwd,
+    const float strength,
+    int32_t i, int32_t j, int32_t k, int32_t b) {
   bool skip[3] = {false, false, false};
 
   if (!flags.isFluid(i, j, k, b)) {
@@ -465,8 +462,11 @@ vec3 MacCormackCorrectMAC(
 
 template <int32_t c>
 float doClampComponentMAC(
-    const Int3& gridSize, float dst, const MACGrid& orig,
-    float fwd, const vec3& pos, const vec3& vel,
+    const Int3& gridSize,
+    float dst,
+    const MACGrid& orig,
+    float fwd, 
+    const vec3& pos, const vec3& vel,
     int32_t b) {
   float minv = std::numeric_limits<float>::max();
   float maxv = -std::numeric_limits<float>::max();
@@ -511,9 +511,12 @@ float doClampComponentMAC(
 }
 
 vec3 MacCormackClampMAC(
-    FlagGrid& flags, MACGrid& vel,
-    vec3 dval, const MACGrid& orig,
-    const MACGrid& fwd, float dt,
+    FlagGrid& flags,
+    MACGrid& vel,
+    vec3 dval,
+    const MACGrid& orig,
+    const MACGrid& fwd,
+    float dt,
     int32_t i, int32_t j, int32_t k, int32_t b) {
   vec3 pos(static_cast<float>(i), static_cast<float>(j),
                      static_cast<float>(k));
@@ -547,10 +550,9 @@ void advectVel
     at::Tensor* tensor_fwd,
     at::Tensor* tensor_bwd,
     const bool is_3d,
-    const std::string method_str
-    const int32_t boundary_width
+    const std::string method_str,
+    const int32_t boundary_width,
     const float maccormack_strength
-
 ) {
   // TODO: Check sizes. We also treat 2D advection as 3D (with depth = 1) and
   // no 'w' component for velocity.
@@ -599,7 +601,7 @@ void advectVel
           vec3 val;
           if (method == ADVECT_EULER_FLUIDNET ||
               method == ADVECT_MACCORMACK_FLUIDNET) {
-            val = SemiLagrangeEulerOursMAC(
+            val = SemiLagrangeEulerFluidNetMAC(
                 flags, vel, orig, dt, order_space, line_trace, i, j, k, b);
           }
           else {
@@ -630,7 +632,7 @@ void advectVel
 
             // Backwards step.
             if (method == ADVECT_MACCORMACK_FLUIDNET) {
-              bwd.setSafe(i, j, k, b, SemiLagrangeEulerOursMAC(
+              bwd.setSafe(i, j, k, b, SemiLagrangeEulerFluidNetMAC(
                   flags, vel, fwd, -dt, order_space, line_trace, i, j, k, b));
             }
           }

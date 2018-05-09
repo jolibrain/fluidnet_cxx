@@ -1,9 +1,14 @@
 #include "grid.h"
-#include "stack_trace.h"
 
-GridBase::GridBase(at::Tensor* grid, bool is_3d) :
-     is_3d_(is_3d), tensor_(grid), p_grid_(grid->data<float>()) {
-  if (grid->ndimension() != 5) {
+void isVector(const at::Tensor & vec)
+{
+   if (vec.ndimension() != 1 || vec.size(0) == 3)
+     AT_ERROR("Vector must be 3D"); 
+}
+
+GridBase::GridBase(at::Type & T, at::Tensor & grid, bool is_3d) :
+     is_3d_(is_3d), tensor_(grid), T_(T){
+  if (grid.ndimension() != 5) {
     AT_ERROR("GridBase: dim must be 5D (even if simulation is 2D).");
   }
 
@@ -18,8 +23,8 @@ float GridBase::getDx() const {
 }
 
 bool GridBase::isInBounds(const Int3& p, int bnd) const {
-  bool ret = (p.x >= bnd && p.y >= bnd && p.x < xsize() - bnd &&
-              p.y < ysize() - bnd);
+  bool ret = (p.x >= bnd && p.y >= bnd &&
+              p.x < xsize() - bnd && p.y < ysize() - bnd);
   if (is_3d_) {
     ret &= (p.z >= bnd && p.z < zsize() - bnd);
   } else {
@@ -28,43 +33,19 @@ bool GridBase::isInBounds(const Int3& p, int bnd) const {
   return ret; 
 }
 
-bool GridBase::isInBounds(const vec3& p,
-                                    int bnd) const {
-  return isInBounds(toInt3(p), bnd);
-}
-
 std::ostream& operator<<(std::ostream& os , const GridBase& outGrid) {
-  os << *(outGrid.tensor_);
-}
-
-int32_t GridBase::index5d(int32_t i, int32_t j, int32_t k,
-                                    int32_t c, int32_t b) const {
-  if (i >= xsize() || j >= ysize() || k >= zsize() || c >= nchan() ||
-      b >= nbatch() || i < 0 || j < 0 || k < 0 || c < 0 || b < 0) {
-    std::cout << "Error index5D out of bounds" << std::endl << std::flush;
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::stringstream ss;
-    ss << "GridBase: index4d out of bounds:" << std::endl
-       << "  (i, j, k, c, b) = (" << i << ", " << j
-       << ", " << k << ", " << c << ", " << b << "), size = (" << xsize()
-       << ", " << ysize() << ", " << zsize() << ", " << nchan() 
-       << nbatch() << ")";
-    std::cerr << ss.str() << std::endl << "Stack trace:" << std::endl;
-    PrintStacktrace();
-    std::cerr << std::endl;
-    AT_ERROR("GridBase: index4d out of bounds");
-    return 0;
-  }
-  return (i * xstride() + j * ystride() + k * zstride() + c * cstride() +
-          b * bstride());
+  os << (outGrid.tensor_);
 }
 
 // Build index is used in interpol and interpolComponent. It allows to 
 // perform interpolation of values in a cell.
 void GridBase::buildIndex(
     int32_t& xi, int32_t& yi, int32_t& zi, float& s0, float& t0, float& f0,
-    float& s1, float& t1, float& f1, const vec3& pos) const {
- // Manta defines 0.5 as the center of the first cell, see this on manta/source/grid.h
+    float& s1, float& t1, float& f1, const Vec3& pos) const {
+
+ // 0.5 is defined as the center of the first cell as the scheme shows:
+ //   |----x----|----x----|----x----|
+ //  x=0  0.5   1   1.5   2   2.5   3
 
   const float px = pos.x - static_cast<float>(0.5);
   const float py = pos.y - static_cast<float>(0.5);
@@ -88,7 +69,7 @@ void GridBase::buildIndex(
     yi = 0;
     t0 = static_cast<float>(1);
     t1 = static_cast<float>(0);
-  }
+  } 
   if (pz < static_cast<float>(0)) {
     zi = 0;
     f0 = static_cast<float>(1);
@@ -113,39 +94,35 @@ void GridBase::buildIndex(
   }
 }
 
-std::mutex GridBase::mutex_;
 
 // ****************************************************************************
 // Flag Grid
-//*****************************************************************************
-FlagGrid::FlagGrid(at::Tensor* grid, bool is_3d) :
-    GridBase(grid, is_3d) {
+// *****************************************************************************
+FlagGrid::FlagGrid(at::Type & T, at::Tensor & grid, bool is_3d) :
+    GridBase(T, grid, is_3d) {
   if (nchan() != 1) {
     AT_ERROR("FlagGrid: nchan must be 1 (scalar).");
   }
 }
 
-
 // ****************************************************************************
 // Float Grid
-//*****************************************************************************
+// *****************************************************************************
 
-FloatGrid::FloatGrid(at::Tensor* grid, bool is_3d) :
-    GridBase(grid, is_3d) {
+FloatGrid::FloatGrid(at::Type & T, at::Tensor & grid, bool is_3d) :
+    GridBase(T, grid, is_3d) {
   if (nchan() != 1) {
     AT_ERROR("FloatGrid: nchan must be 1 (scalar).");
   }
 }
 
-
-float FloatGrid::getInterpolatedHi(const vec3& pos,
-                                           int32_t order, int32_t b) const {
+float FloatGrid::getInterpolatedHi(const Vec3& pos,
+                        int32_t order, int32_t b) const {
   switch (order) {
   case 1:
     return interpol(pos, b);
   case 2:
     AT_ERROR("getInterpolatedHi ERROR: cubic not supported.");
-    // TODO(tompson): implement this.
     break;
   default:
     AT_ERROR("getInterpolatedHi ERROR: order not supported.");
@@ -155,14 +132,13 @@ float FloatGrid::getInterpolatedHi(const vec3& pos,
 }
 
 float FloatGrid::getInterpolatedWithFluidHi(
-    const FlagGrid& flags, const vec3& pos,
+    const FlagGrid& flags, const Vec3& pos,
     int32_t order, int32_t b) const {
   switch (order) {
   case 1:
     return interpolWithFluid(flags, pos, b);
   case 2:
     AT_ERROR("getInterpolatedWithFluidHi ERROR: cubic not supported.");
-    // TODO(tompson): implement this.
     break;
   default:
     AT_ERROR("getInterpolatedWithFluidHi ERROR: order not supported.");
@@ -171,7 +147,7 @@ float FloatGrid::getInterpolatedWithFluidHi(
   return 0;
 }
 
-float FloatGrid::interpol(const vec3& pos, int32_t b) const {
+float FloatGrid::interpol(const Vec3& pos, int32_t b) const {
   int32_t xi, yi, zi;
   float s0, t0, f0, s1, t1, f1;
   buildIndex(xi, yi, zi, s0, t0, f0, s1, t1, f1, pos); 
@@ -214,7 +190,7 @@ void FloatGrid::interpol1DWithFluid(
 }
 
 float FloatGrid::interpolWithFluid(
-    const FlagGrid& flags, const vec3& pos,
+    const FlagGrid& flags,const Vec3& pos, 
     int32_t ibatch) const {
   int32_t xi, yi, zi;
   float s0, t0, f0, s1, t1, f1;
@@ -227,8 +203,8 @@ float FloatGrid::interpolWithFluid(
     const Int3 p_b(xi, yi + 1, zi);
     bool is_fluid_ab;
     float val_ab;
-    interpol1DWithFluid(data(p_a, 0, ibatch), flags.isFluid(p_a, ibatch),
-                        data(p_b, 0, ibatch), flags.isFluid(p_b, ibatch),
+    interpol1DWithFluid(data(p_a.x, p_a.y, p_a.z, 0, ibatch), flags.isFluid(p_a.x, p_a.y, p_a.z, ibatch),
+                        data(p_b.x, p_b.y, p_b.z, 0, ibatch), flags.isFluid(p_b.x, p_b.y, p_b.z, ibatch),
                         t0, t1, &is_fluid_ab, &val_ab);
 
     // val_cd = data(xi + 1, yi, zi, 0, b) * t0 +
@@ -237,7 +213,7 @@ float FloatGrid::interpolWithFluid(
     const Int3 p_d(xi + 1, yi + 1, zi);
     bool is_fluid_cd;
     float val_cd;
-    interpol1DWithFluid(data(p_c, 0, ibatch), flags.isFluid(p_c, ibatch),
+    interpol1DWithFluid(data(xi + 1, yi, zi, 0, ibatch), flags.isFluid(p_c, ibatch),
                         data(p_d, 0, ibatch), flags.isFluid(p_d, ibatch),
                         t0, t1, &is_fluid_cd, &val_cd);
 
@@ -264,19 +240,22 @@ float FloatGrid::interpolWithFluid(
     // val_abcd = val_ab * s0 + val_cd * s1
     bool is_fluid_abcd;
     float val_abcd;
-    interpol1DWithFluid(val_ab, is_fluid_ab, val_cd, is_fluid_cd,
+    interpol1DWithFluid(val_ab, is_fluid_ab,
+                        val_cd, is_fluid_cd,
                         s0, s1, &is_fluid_abcd, &val_abcd);
 
     // val_efgh = val_ef * s0 + val_gh * s1
     bool is_fluid_efgh;
     float val_efgh;
-    interpol1DWithFluid(val_ef, is_fluid_ef, val_gh, is_fluid_gh,
+    interpol1DWithFluid(val_ef, is_fluid_ef,
+                        val_gh, is_fluid_gh,
                         s0, s1, &is_fluid_efgh, &val_efgh);
 
     // val = val_abcd * f0 + val_efgh * f1
     bool is_fluid;
     float val;
-    interpol1DWithFluid(val_abcd, is_fluid_abcd, val_efgh, is_fluid_efgh,
+    interpol1DWithFluid(val_abcd, is_fluid_abcd,
+                        val_efgh, is_fluid_efgh,
                         f0, f1, &is_fluid, &val);
     
     if (!is_fluid) {
@@ -310,7 +289,8 @@ float FloatGrid::interpolWithFluid(
     // val = val_ab * s0 + val_cd * s1
     bool is_fluid;
     float val;
-    interpol1DWithFluid(val_ab, is_fluid_ab, val_cd, is_fluid_cd,
+    interpol1DWithFluid(val_ab, is_fluid_ab,
+                        val_cd, is_fluid_cd,
                         s0, s1, &is_fluid, &val);
 
     if (!is_fluid) {
@@ -322,10 +302,10 @@ float FloatGrid::interpolWithFluid(
     }
   }
 }
-
+/*
 // ****************************************************************************
 // MAC Grid
-//*****************************************************************************
+// *****************************************************************************
 
 MACGrid::MACGrid(at::Tensor* grid, bool is_3d) :
     GridBase(grid, is_3d) {
@@ -452,7 +432,7 @@ float MACGrid::interpolComponent(
 }
 // ****************************************************************************
 // Vec Grid
-//*****************************************************************************
+// *****************************************************************************
 
 VecGrid::VecGrid(at::Tensor* grid, bool is_3d) :
     GridBase(grid, is_3d) {
@@ -512,4 +492,4 @@ vec3 VecGrid::curl(int32_t i, int32_t j, int32_t k,
   }
   return v;
 }
-
+*/

@@ -17,7 +17,7 @@ const float epsilon = static_cast<float>(1e-12);
 // manta/source/grid.h Grid::getInterpolated() and the lower level call in
 // manta/source/util/interpol.h interpol(), where the input position has a
 // pos - 0.5 applied to it (our interpol function does this as well).
-static inline void GetPixelCenter(const vec3& pos, int32_t* ix,
+void GetPixelCenter(const vec3& pos, int32_t* ix,
                                   int32_t* iy, int32_t* iz) {
   // Note: you could either calculate (int)round(pos.x - 0.5), or you can
   // just round down without taking off the 0.5 value.
@@ -31,7 +31,7 @@ static inline void GetPixelCenter(const vec3& pos, int32_t* ix,
 // It also considers the space from the left of the first cell to the center
 // (even though we don't have samples there) and the space from the right of the
 // last cell to the border.
-static inline bool IsOutOfDomainReal(
+bool IsOutOfDomainReal(
     const vec3& pos, const FlagGrid& flags) {
   return (pos.x <= (float)0 ||  // LHS of cell.
           pos.x >= (float)flags.xsize() ||  // RHS of cell.
@@ -41,7 +41,7 @@ static inline bool IsOutOfDomainReal(
           pos.z >= (float)flags.zsize());
 }
 
-static inline bool IsBlockedCell(const FlagGrid& flags,
+bool IsBlockedCell(const FlagGrid& flags,
                                  int32_t i, int32_t j, int32_t k, int32_t b) {
   // Returns true if the cell is blocked.
   // Shouldn't be called on point outside the domain.
@@ -52,14 +52,14 @@ static inline bool IsBlockedCell(const FlagGrid& flags,
   return !flags.isFluid(i, j, k, b);
 }
 
-static inline void ClampToDomain(
+void ClampToDomain(
     const FlagGrid& flags, int32_t* ix, int32_t* iy, int32_t* iz) {
   *ix = std::max<int32_t>(std::min<int32_t>(*ix, flags.xsize() - 1), 0);
   *iy = std::max<int32_t>(std::min<int32_t>(*iy, flags.ysize() - 1), 0);
   *iz = std::max<int32_t>(std::min<int32_t>(*iz, flags.zsize() - 1), 0);
 }
 
-static inline void ClampToDomainReal(
+void ClampToDomainReal(
     vec3& pos, const FlagGrid& flags) {
   // Clamp to a position epsilon inside the simulation domain. 
   pos.x = std::min<float>(std::max<float>(pos.x, hit_margin), 
@@ -72,7 +72,7 @@ static inline void ClampToDomainReal(
 
 // This version takes in the float position, calculates the current voxel index
 // and performs the integer lookup on that.
-static inline bool IsBlockedCellReal(const FlagGrid& flags,
+bool IsBlockedCellReal(const FlagGrid& flags,
                                      const vec3& pos, int32_t b) {
   int32_t ix, iy, iz;
   GetPixelCenter(pos, &ix, &iy, &iz);
