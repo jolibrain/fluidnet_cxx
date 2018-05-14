@@ -1,34 +1,43 @@
 #include "advection.h"
 
+namespace fluid {
 // *****************************************************************************
-// advectScalar
+// Advect Scalar
 // *****************************************************************************
 
-float SemiLagrangeEulerFluidNet
+T SemiLagrangeEulerFluidNet
 (
     FlagGrid& flags,
     MACGrid& vel,
-    FloatGrid& src,
+    RealGrid& src,
     float dt,
     int order_space,
-    int32_t i, int32_t j, int32_t k, int32_t b,
+    int32_t i, int32_t j, int32_t k, int32_t ibatch,
     const bool line_trace,
     const bool sample_outside_fluid
 ) {
-  if (!flags.isFluid(i, j, k, b)) {
+  at::Backend bckd = flags.getBackend();
+  at::ScalarType real = flags.getGridType();
+  
+  T b =  getType(bckd, at::kInt).scalarTensor(ibatch);
+  if (!flags.isFluid(i, j, k, ibatch)) {
     // Don't advect solid geometry!
-    return src(i, j, k, b);
+    return src(i, j, k, ibatch);
   }
-
-  const vec3 pos = vec3((float)i + (float)0.5,
-                        (float)j + (float)0.5,
-                        (float)k + (float)0.5);
-  vec3 displacement = vel.getCentered(i, j, k, b) * (-dt);
+  
+  const T pos = getType(bckd, real).zeros({3});
+  
+  pos[0] = i + 0.5;
+  pos[1] = j + 0.5;
+  pos[2] = k + 0.5;
+  
+  T displacement = getType(bckd, real).zeros({3});
+  displacement = vel.getCentered(i, j, k, ibatch) * (-dt);
 
   // Calculate a line trace from pos along displacement.
   // NOTE: this is expensive (MUCH more expensive than Manta's routines), but
   // can avoid some artifacts which would occur sampling into Geometry.
-  vec3 back_pos;
+  T back_pos = getType(bckd, real).zeros({3});
   calcLineTrace(pos, displacement, flags, b, &back_pos, line_trace);
 
   // Finally, sample the field at this back position.
@@ -42,35 +51,44 @@ float SemiLagrangeEulerFluidNet
 // This is the same kernel as the previous FluidNet Euler kernel, except it saves the
 // particle trace position. This is used for FluidNet maccormack routine (it does
 // a local search around these positions in clamp routine).
-float SemiLagrangeEulerFluidNetSavePos
+T SemiLagrangeEulerFluidNetSavePos
 (
     FlagGrid& flags, 
     MACGrid& vel, 
-    FloatGrid& src,
+    RealGrid& src,
     float dt,
     int order_space,
-    int32_t i, int32_t j, int32_t k, int32_t b,
+    int32_t i, int32_t j, int32_t k, int32_t ibatch,
     const bool line_trace,
     const bool sample_outside_fluid,
     VecGrid& pos
 ) {
-  if (!flags.isFluid(i, j, k, b)) {
+  at::Backend bckd = flags.getBackend();
+  at::ScalarType real = flags.getGridType();
+  
+  T b =  getType(bckd, at::kInt).scalarTensor(ibatch);
+
+  const T start_pos = getType(bckd, real).zeros({3});
+
+  start_pos[0] = i + 0.5;
+  start_pos[1] = j + 0.5;
+  start_pos[2] = k + 0.5;
+
+  if (!flags.isFluid(i, j, k, ibatch)) {
     // Don't advect solid geometry!
-    pos.set(i, j, k, b, vec3(i, j, k) + (float)0.5);
-    return src(i, j, k, b);
+    pos.set(i, j, k, ibatch, start_pos);
+    return src(i, j, k, ibatch);
   }
 
-  const vec3 start_pos = vec3((float)i + (float)0.5,
-                                                  (float)j + (float)0.5,
-                                                  (float)k + (float)0.5);
-  vec3 displacement = vel.getCentered(i, j, k, b) * (-dt);
+  T displacement = getType(bckd, real).zeros({3});
+  displacement = vel.getCentered(i, j, k, ibatch) * (-dt);
 
   // Calculate a line trace from pos along displacement.
   // NOTE: this is expensive (MUCH more expensive than Manta's routines), but
   // can avoid some artifacts which would occur sampling into Geometry.
-  vec3 back_pos;
+  T back_pos = getType(bckd, real).zeros({3});
   calcLineTrace(start_pos, displacement, flags, b, &back_pos, line_trace);
-  pos.set(i, j, k, b, back_pos);
+  pos.set(i, j, k, ibatch, back_pos);
 
   // Finally, sample the field at this back position.
   if (!sample_outside_fluid) {
@@ -80,17 +98,20 @@ float SemiLagrangeEulerFluidNetSavePos
   }
 }
 
-float MacCormackCorrect
+T MacCormackCorrect
 (
     FlagGrid& flags,
-    const FloatGrid& old,
-    const FloatGrid& fwd,
-    const FloatGrid& bwd,
+    const RealGrid& old,
+    const RealGrid& fwd,
+    const RealGrid& bwd,
     const float strength,
     bool is_levelset,
     int32_t i, int32_t j, int32_t k, int32_t b
 ) {
-  float dst = fwd(i, j, k, b);
+  at::Backend bckd = flags.getBackend();
+  at::ScalarType real = flags.getGridType();
+  
+  T dst = fwd(i, j, k, b);
 
   if (flags.isFluid(i, j, k, b)) {
     // Only correct inside fluid region.
@@ -103,34 +124,43 @@ float MacCormackCorrect
 // position for min and max values. If no valid values are found, then
 // false is returned (indicating that a clamp shouldn't be performed) otherwise
 // true is returned (and the clamp min and max bounds are set).
-static float getClampBounds
+bool getClampBounds
 (
-    FloatGrid src,
-    vec3 pos,
-    const int32_t b,
+    RealGrid src,
+    T pos,
+    const int32_t ibatch,
     FlagGrid flags,
     const bool sample_outside_fluid,
-    float* clamp_min,
-    float* clamp_max
+    T* clamp_min,
+    T* clamp_max
 ) {
-  float minv = std::numeric_limits<float>::infinity();
-  float maxv = -std::numeric_limits<float>::infinity();
+  at::Backend bckd = flags.getBackend();
+  at::ScalarType real = flags.getGridType();
+
+  T b =  getType(bckd, at::kInt).scalarTensor(ibatch);
+ 
+  T minv = at::infer_type(pos).scalarTensor(std::numeric_limits<float>::infinity());
+  T maxv = at::infer_type(pos).scalarTensor(-std::numeric_limits<float>::infinity());
+
+  const T indx0 = getType(bckd, at::kInt).zeros({3});
 
   // clamp forward lookup to grid 
-  const int32_t i0 = clamp((int32_t)pos.x, 0, flags.xsize() - 1);
-  const int32_t j0 = clamp((int32_t)pos.y, 0, flags.ysize() - 1);
-  const int32_t k0 =
-    src.is_3d() ? clamp((int32_t)pos.z, 0, flags.zsize() - 1) : 0;
+  indx0[0] = clamp(pos[0], 0, flags.xsize() - 1);
+  indx0[1] = clamp(pos[1], 0, flags.ysize() - 1);
+  indx0[2] =
+    src.is_3d() ? clamp(pos[2], 0, flags.zsize() - 1)
+    : getType(bckd, at::kInt).scalarTensor(0);
+
   // Some modification here. Instead of looking just to the RHS, we will search
   // all neighbors within a region.  This is more expensive but better handles
   // border cases.
   int32_t ncells = 0;
-  for (int32_t k = k0 - 1; k <= k0 + 1; k++) {
-    for (int32_t j = j0 - 1; j <= j0 + 1; j++) {
-      for (int32_t i = i0 - 1; i <= i0 + 1; i++) {
-        if (k < 0 || k >= flags.zsize() ||
-            j < 0 || j >= flags.ysize() ||
-            i < 0 || i >= flags.xsize()) {
+  for (T k = indx0[2] - 1; toBool(k <= indx0[2] + 1); k += 1) {
+    for (T j = indx0[1] - 1; toBool(j <= indx0[1] + 1); j += 1) {
+      for (T i = indx0[0] - 1; toBool(i <= indx0[0] + 1); i +=  1) {
+        if (toBool((k < 0).__or__(k >= flags.zsize()).__or__
+           (j < 0).__or__(j >= flags.ysize()).__or__
+           (i < 0).__or__(i >= flags.xsize())) ) {
           // Outside bounds.
           continue;
         } else if (sample_outside_fluid || flags.isFluid(i, j, k, b)) {
@@ -154,33 +184,35 @@ static float getClampBounds
   }
 }
 
-float MacCormackClampFluidNet
+T MacCormackClampFluidNet
 (
     FlagGrid& flags,
     MACGrid& vel,
-    const FloatGrid& dst,
-    const FloatGrid& src,
-    const FloatGrid& fwd,
+    const RealGrid& dst,
+    const RealGrid& src,
+    const RealGrid& fwd,
     float dt,
     const VecGrid& fwd_pos,
     const VecGrid& bwd_pos,
     const bool sample_outside_fluid,
     int32_t i, int32_t j, int32_t k, int32_t b
 ) {
+  at::Backend bckd = flags.getBackend();
+  at::ScalarType real = flags.getGridType();
 
    // Calculate the clamp bounds.
-  float clamp_min = std::numeric_limits<float>::infinity();
-  float clamp_max = -std::numeric_limits<float>::infinity();
+  T clamp_min = at::getType(bckd, real).scalarTensor(std::numeric_limits<float>::infinity());
+  T clamp_max = at::getType(bckd, real).scalarTensor(-std::numeric_limits<float>::infinity());
 
   // Calculate the clamp bounds around the forward position.
-  vec3 pos = fwd_pos(i, j, k, b);
+  T pos = fwd_pos(i, j, k, b);
   const bool do_clamp_fwd = getClampBounds(
       src, pos, b, flags, sample_outside_fluid, &clamp_min, &clamp_max);
 
   // FluidNet: According to "An unconditionally stable maccormack method"
   // only a forward search is required.
 
-  float dval;
+  T dval;
   if (!do_clamp_fwd) {
     // If the cell is surrounded by fluid neighbors either in the fwd or
     // backward directions, then we need to revert to an euler step.
@@ -188,7 +220,7 @@ float MacCormackClampFluidNet
   } else {
     // We found valid values with which to clamp the maccormack corrected
     // quantity. Apply this clamp.
-    dval = clamp(dst(i, j, k, b), clamp_min, clamp_max);
+    dval = clamp(dst(i, j, k, b), at::Scalar(clamp_min), at::Scalar(clamp_max));
   }
 
   return dval;
@@ -197,14 +229,14 @@ float MacCormackClampFluidNet
 void advectScalar
 (
     float dt,
-    at::Tensor* tensor_flags,
-    at::Tensor* tensor_u,
-    at::Tensor* tensor_s,
-    at::Tensor* tensor_s_dst,
-    at::Tensor* tensor_fwd,
-    at::Tensor* tensor_bwd,
-    at::Tensor* tensor_fwd_pos,
-    at::Tensor* tensor_bwd_pos,
+    T& tensor_flags,
+    T& tensor_u,
+    T& tensor_s,
+    T& tensor_s_dst,
+    T& tensor_fwd,
+    T& tensor_bwd,
+    T& tensor_fwd_pos,
+    T& tensor_bwd_pos,
     const bool is_3d,
     const std::string method_str,
     const int32_t boundary_width,
@@ -215,12 +247,12 @@ void advectScalar
   // no 'w' component for velocity.
   FlagGrid flags(tensor_flags, is_3d);
   MACGrid vel(tensor_u, is_3d);
-  FloatGrid src(tensor_s, is_3d);
-  FloatGrid dst(tensor_s_dst, is_3d);
+  RealGrid src(tensor_s, is_3d);
+  RealGrid dst(tensor_s_dst, is_3d);
 
   // The maccormack method also needs fwd and bwd temporary arrays.
-  FloatGrid fwd(tensor_fwd, is_3d);
-  FloatGrid bwd(tensor_bwd, is_3d); 
+  RealGrid fwd(tensor_fwd, is_3d);
+  RealGrid bwd(tensor_bwd, is_3d); 
   VecGrid fwd_pos(tensor_fwd_pos, is_3d);
   VecGrid bwd_pos(tensor_bwd_pos, is_3d);
 
@@ -237,27 +269,33 @@ void advectScalar
   const int32_t ysize = flags.ysize();
   const int32_t zsize = flags.zsize();
 
-  for (int32_t b = 0; b < nbatch; b++) {
-    const int32_t bnd = 1;
-    int32_t k, j, i;
-    FloatGrid* cur_dst = (method == ADVECT_MACCORMACK_FLUIDNET) ?
-                                   &fwd : &dst;
+  at::Backend bckd = flags.getBackend();
+  at::ScalarType real = flags.getGridType();
+  const T posCorrected = getType(bckd, real).zeros({3});
 
-#pragma omp parallel for collapse(3) private(k, j, i)
+  for (int32_t b = 0; b < nbatch; b++) {
+    const int32_t bnd = boundary_width;
+    int32_t k, j, i;
+    RealGrid* cur_dst = (method == ADVECT_MACCORMACK_FLUIDNET) ? &fwd : &dst;
+
     for (k = 0; k < zsize; k++) {
       for (j = 0; j < ysize; j++) {
         for (i = 0; i < xsize; i++) {
-          if (i < bnd || i > xsize - 1 - bnd ||
+           
+            if (i < bnd || i > xsize - 1 - bnd ||
               j < bnd || j > ysize - 1 - bnd ||
               (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
             // Manta zeros stuff on the border.
             (*cur_dst)(i, j, k, b) = 0;
-            fwd_pos.set(i, j, k, b, vec3(i, j, k) + (float)0.5);
+            posCorrected[0] = i + 0.5;
+            posCorrected[1] = j + 0.5;
+            posCorrected[2] = k + 0.5;
+            fwd_pos.set(i, j, k, b, posCorrected);
             continue;
           }
 
           // Forward step.
-          float val;
+          T val;
           if (method == ADVECT_EULER_FLUIDNET) {
             val = SemiLagrangeEulerFluidNet(
                 flags, vel, src, dt, order_space, i, j, k, b, line_trace,
@@ -281,7 +319,6 @@ void advectScalar
       // Otherwise we need to do the backwards step (which is a SemiLagrange
       // step on the forward data - hence we needed to finish the above loops
       // beforemoving on).
-#pragma omp parallel for collapse(3) private(k, j, i)
       for (k = 0; k < zsize; k++) { 
         for (j = 0; j < ysize; j++) { 
           for (i = 0; i < xsize; i++) {
@@ -289,7 +326,10 @@ void advectScalar
                 j < bnd || j > ysize - 1 - bnd ||
                 (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
               bwd(i, j, k, b) = 0;
-              bwd_pos.set(i, j, k, b, vec3(i, j, k) + (float)0.5);
+              posCorrected[0] = i + 0.5;
+              posCorrected[1] = j + 0.5;
+              posCorrected[2] = k + 0.5;
+              bwd_pos.set(i, j, k, b, posCorrected);
               continue; 
             } 
 
@@ -304,7 +344,6 @@ void advectScalar
       }
 
       // Now compute the correction.
-#pragma omp parallel for collapse(3) private(k, j, i)
       for (k = 0; k < zsize; k++) { 
         for (j = 0; j < ysize; j++) { 
           for (i = 0; i < xsize; i++) { 
@@ -316,7 +355,6 @@ void advectScalar
       }
 
       // Now perform clamping.
-#pragma omp parallel for collapse(3) private(k, j, i)
       for (k = 0; k < zsize; k++) { 
         for (j = 0; j < ysize; j++) { 
           for (i = 0; i < xsize; i++) {
@@ -338,11 +376,12 @@ void advectScalar
 
 }
 
+
 // *****************************************************************************
-// advectVel
+// Advect Velocity
 // *****************************************************************************
 
-vec3 SemiLagrangeEulerFluidNetMAC(
+T SemiLagrangeEulerFluidNetMAC(
     FlagGrid& flags,
     MACGrid& vel,
     MACGrid& src,
@@ -354,75 +393,106 @@ vec3 SemiLagrangeEulerFluidNetMAC(
     // Don't advect solid geometry!
     return src(i, j, k, b);
   }
+  at::Backend bckd = flags.getBackend();
+  at::ScalarType real = flags.getGridType();
+
+  T ibatch =  getType(bckd, at::kInt).scalarTensor(b);
+  T nchan = getType(bckd, at::kInt).arange(3);
 
   // Get correct velocity at MAC position.
   // No need to shift xpos etc. as lookup field is also shifted.
-  const vec3 pos(static_cast<float>(i) + 0.5,
-                           static_cast<float>(j) + 0.5,
-                           static_cast<float>(k) + 0.5);
+
+  const T pos = getType(bckd, real).zeros({3});
+
+  pos[0] = i + 0.5;
+  pos[1] = j + 0.5;
+  pos[2] = k + 0.5;
+
 
   // FluidNet: We floatly want to clamp to the SMALLEST of the steps in each
   // dimension, however this is OK for now (because doing so would expensive)...
-  vec3 xpos;
-  calcLineTrace(pos, vel.getAtMACX(i, j, k, b) * (-dt), flags, b, &xpos,
+  T xpos = getType(bckd, real).zeros({3});
+  calcLineTrace(pos, vel.getAtMACX(i, j, k, b) * (-dt), flags, ibatch, &xpos,
                 line_trace);
-  const float vx = src.getInterpolatedComponentHi(xpos, order_space, 0, b);
+  const T vx = src.getInterpolatedComponentHi(xpos, order_space, nchan[0], ibatch);
 
-  vec3 ypos;
-  calcLineTrace(pos, vel.getAtMACY(i, j, k, b) * (-dt), flags, b, &ypos,
+  T ypos = getType(bckd, real).zeros({3});
+  calcLineTrace(pos, vel.getAtMACY(i, j, k, b) * (-dt), flags, ibatch, &ypos,
                 line_trace);
-  const float vy = src.getInterpolatedComponentHi(ypos, order_space, 1, b);
+  const T vy = src.getInterpolatedComponentHi(ypos, order_space, nchan[1], ibatch);
 
-  float vz;
+  T vz = getType(bckd, real).scalarTensor(0);
   if (vel.is_3d()) {
-    vec3 zpos;
-    calcLineTrace(pos, vel.getAtMACZ(i, j, k, b) * (-dt), flags, b, &zpos,
+    T zpos = getType(bckd, real).zeros({3});
+    calcLineTrace(pos, vel.getAtMACZ(i, j, k, b) * (-dt), flags, ibatch, &zpos,
                   line_trace);
-    vz = src.getInterpolatedComponentHi(zpos, order_space, 2, b);
+    vz = src.getInterpolatedComponentHi(zpos, order_space, nchan[2], ibatch);
   } else {
-    vz = 0;
+    // vz = 0 (already at initialization)
   }
+  
+  T ret = getType(bckd, real).zeros({3});
+  ret[0] = vx;
+  ret[1] = vy;
+  ret[2] = vz;
 
-  return vec3(vx, vy, vz);
+  return ret;
 }
 
-vec3 SemiLagrangeMAC(
+T SemiLagrangeMAC(
     FlagGrid& flags,
     MACGrid& vel,
     MACGrid& src,
     float dt,
     int order_space,
     int32_t i, int32_t j, int32_t k, int32_t b) {
+  at::Backend bckd = flags.getBackend();
+  at::ScalarType real = flags.getGridType();
+
+  T ibatch =  getType(bckd, at::kInt).scalarTensor(b);
+  T nchan = getType(bckd, at::kInt).arange(3);
+  
   // Get correct velocity at MAC position.
   // No need to shift xpos etc. as lookup field is also shifted.
-  const vec3 pos(static_cast<float>(i) + 0.5,
-                           static_cast<float>(j) + 0.5,
-                           static_cast<float>(k) + 0.5);
 
-  vec3 xpos = pos - vel.getAtMACX(i, j, k, b) * dt;
-  const float vx = src.getInterpolatedComponentHi(xpos, order_space, 0, b);
+  const T pos = getType(bckd, real).zeros({3});
 
-  vec3 ypos = pos - vel.getAtMACY(i, j, k, b) * dt;
-  const float vy = src.getInterpolatedComponentHi(ypos, order_space, 1, b);
+  pos[0] = i + 0.5;
+  pos[1] = j + 0.5;
+  pos[2] = k + 0.5;
 
-  float vz;
+  T xpos = pos - vel.getAtMACX(i, j, k, b) * dt;
+  const T vx = src.getInterpolatedComponentHi(xpos, order_space, nchan[0], ibatch);
+
+  T ypos = pos - vel.getAtMACY(i, j, k, b) * dt;
+  const T vy = src.getInterpolatedComponentHi(ypos, order_space, nchan[1], ibatch);
+
+  T vz = getType(bckd, real).scalarTensor(0);
   if (vel.is_3d()) {
-    vec3 zpos = pos - vel.getAtMACZ(i, j, k, b) * dt;
-    vz = src.getInterpolatedComponentHi(zpos, order_space, 2, b);
+    T zpos = pos - vel.getAtMACZ(i, j, k, b) * dt;
+    vz = src.getInterpolatedComponentHi(zpos, order_space, nchan, ibatch);
   } else {
-    vz = 0;
+    // vz = 0 (already at initialization);
   }
+  
+  T ret = getType(bckd, real).zeros({3});
+  ret[0] = vx;
+  ret[1] = vy;
+  ret[2] = vz;
 
-  return vec3(vx, vy, vz);
+  return ret;
 }
 
-vec3 MacCormackCorrectMAC(
+T MacCormackCorrectMAC(
     FlagGrid& flags,
     const MACGrid& old,
     const MACGrid& fwd,
     const MACGrid& bwd,
     const float strength,
     int32_t i, int32_t j, int32_t k, int32_t b) {
+  at::Backend bckd = flags.getBackend();
+  at::ScalarType real = flags.getGridType();
+
   bool skip[3] = {false, false, false};
 
   if (!flags.isFluid(i, j, k, b)) {
@@ -444,15 +514,15 @@ vec3 MacCormackCorrectMAC(
     }
   }
 
-  vec3 dst(0, 0, 0);
+  T dst = getType(bckd, real).zeros({3});
 
   const int32_t dim = flags.is_3d() ? 3 : 2;
   for (int32_t c = 0; c < dim; ++c) {
     if (skip[c]) {
-      dst(c) = fwd(i, j, k, c, b);
+      dst[c] = fwd(i, j, k, c, b);
     } else {
       // perform actual correction with given strength.
-      dst(c) = fwd(i, j, k, c, b) + strength * 0.5 * (old(i, j, k, c, b) -
+      dst[c] = fwd(i, j, k, c, b) + strength * 0.5 * (old(i, j, k, c, b) -
                                                       bwd(i, j, k, c, b));
     }
   }
@@ -460,78 +530,98 @@ vec3 MacCormackCorrectMAC(
   return dst;
 }
 
-template <int32_t c>
-float doClampComponentMAC(
-    const Int3& gridSize,
-    float dst,
+template <int32_t chan>
+T doClampComponentMAC(
+    const T& gridSize,
+    T dst,
     const MACGrid& orig,
-    float fwd, 
-    const vec3& pos, const vec3& vel,
+    T fwd, 
+    const T& pos, const T& vel,
     int32_t b) {
-  float minv = std::numeric_limits<float>::max();
-  float maxv = -std::numeric_limits<float>::max();
+  at::Backend bckd = orig.getBackend();
+  at::ScalarType real = orig.getGridType();
+  
+  T c = getType(bckd, at::kInt).scalarTensor(chan);
+  T ibatch =  getType(bckd, at::kInt).scalarTensor(b);
+
+  T minv = at::infer_type(pos).scalarTensor(std::numeric_limits<float>::infinity());
+  T maxv = at::infer_type(pos).scalarTensor(-std::numeric_limits<float>::infinity());
 
   // forward (and optionally) backward
-  Int3 positions[2];
-  positions[0] = toInt3(pos - vel);
-  positions[1] = toInt3(pos + vel);
+  T positions[2] = getType(bckd, at::kInt).zeros({2,3});
+  positions[0] = (pos - vel).toType(getType(bckd, at::kInt));
+  positions[1] = (pos + vel).toType(getType(bckd, at::kInt));
 
   for (int32_t l = 0; l < 2; ++l) {
-    Int3& curr_pos = positions[l];
+    const T& curr_pos = positions[l];
+    const T indx0 = getType(bckd, at::kInt).zeros({3});
+    const T indx1 = getType(bckd, at::kInt).zeros({3});
 
     // clamp forward lookup to grid 
-    const int32_t i0 = clamp(curr_pos.x, 0, gridSize.x - 1);
-    const int32_t j0 = clamp(curr_pos.y, 0, gridSize.y - 1);
-    const int32_t k0 = clamp(curr_pos.z, 0,
-                             (orig.is_3d() ? (gridSize.z - 1) : 1));
-    const int32_t i1 = i0 + 1;
-    const int32_t j1 = j0 + 1;
-    const int32_t k1 = (orig.is_3d() ? (k0 + 1) : k0);
-    if (!orig.isInBounds(Int3(i0, j0, k0), 0) ||
-        !orig.isInBounds(Int3(i1, j1, k1), 0)) {
+    indx0[0] = clamp(curr_pos[0], 0, at::Scalar(gridSize[0] - 1));
+    indx0[1] = clamp(curr_pos[1], 0, at::Scalar(gridSize[1] - 1));
+    indx0[2] = clamp(curr_pos[2], 0,
+                             (orig.is_3d() ? at::Scalar(gridSize[2] - 1) : at::Scalar(1)));
+    indx1[0] = indx0[0] + 1;
+    indx1[1] = indx0[1] + 1;
+    indx1[2] = (orig.is_3d() ? (indx0[2] + 1) : indx0[2]);
+    if (!orig.isInBounds(indx0, 0) ||
+        !orig.isInBounds(indx1, 0)) {
       return fwd;
     }
 
     // find min/max around source pos
-    getMinMax(minv, maxv, orig(i0, j0, k0, c, b));
-    getMinMax(minv, maxv, orig(i1, j0, k0, c, b));
-    getMinMax(minv, maxv, orig(i0, j1, k0, c, b));
-    getMinMax(minv, maxv, orig(i1, j1, k0, c, b));
+    getMinMax(minv, maxv, orig(indx0[0], indx0[1], indx0[2], c, ibatch));
+    getMinMax(minv, maxv, orig(indx1[0], indx0[1], indx0[2], c, ibatch));
+    getMinMax(minv, maxv, orig(indx0[0], indx1[1], indx0[2], c, ibatch));
+    getMinMax(minv, maxv, orig(indx1[0], indx1[1], indx0[2], c, ibatch));
 
     if (orig.is_3d()) {
-      getMinMax(minv, maxv, orig(i0, j0, k1, c, b));
-      getMinMax(minv, maxv, orig(i1, j0, k1, c, b));
-      getMinMax(minv, maxv, orig(i0, j1, k1, c, b));
-      getMinMax(minv, maxv, orig(i1, j1, k1, c, b));
+      getMinMax(minv, maxv, orig(indx0[0], indx0[1], indx1[2], c, ibatch));
+      getMinMax(minv, maxv, orig(indx1[0], indx0[1], indx1[2], c, ibatch));
+      getMinMax(minv, maxv, orig(indx0[0], indx1[1], indx1[2], c, ibatch));
+      getMinMax(minv, maxv, orig(indx1[0], indx1[1], indx1[2], c, ibatch));
     }
   }
 
-  dst = clamp(dst, minv, maxv);
+  dst = clamp(dst, at::Scalar(minv), at::Scalar(maxv));
   return dst;
 }
 
-vec3 MacCormackClampMAC(
+T MacCormackClampMAC(
     FlagGrid& flags,
     MACGrid& vel,
-    vec3 dval,
+    T dval,
     const MACGrid& orig,
     const MACGrid& fwd,
     float dt,
     int32_t i, int32_t j, int32_t k, int32_t b) {
-  vec3 pos(static_cast<float>(i), static_cast<float>(j),
-                     static_cast<float>(k));
-  vec3 dfwd = fwd(i, j, k, b);
-  Int3 gridUpper = flags.getSize() - 1;
+  at::Backend bckd = flags.getBackend();
+  at::ScalarType real = flags.getGridType();
 
-  dval.x = doClampComponentMAC<0>(gridUpper, dval.x, orig, dfwd.x, pos,
+  T nchan = getType(bckd, at::kInt).arange(3);
+  // Get correct velocity at MAC position.
+  // No need to shift xpos etc. as lookup field is also shifted.
+
+  const T pos = getType(bckd, real).zeros({3});
+
+  pos[0] = i;
+  pos[1] = j;
+  pos[2] = k;
+  
+  T dfwd = fwd(i, j, k, b);
+  T gridUpper = flags.getSize() - 1;
+
+  dval[0] = doClampComponentMAC<0>(gridUpper, dval[0], orig, dfwd[0], pos,
                                   vel.getAtMACX(i, j, k, b) * dt, b);
-  dval.y = doClampComponentMAC<1>(gridUpper, dval.y, orig, dfwd.y, pos,
+  
+  dval[1] = doClampComponentMAC<1>(gridUpper, dval[1], orig, dfwd[1], pos,
                                   vel.getAtMACY(i, j, k, b) * dt, b);
   if (flags.is_3d()) {
-    dval.z = doClampComponentMAC<2>(gridUpper, dval.z, orig, dfwd.z, pos,
+    dval[2] = doClampComponentMAC<2>(gridUpper, dval[2], orig, dfwd[2], pos,
                                     vel.getAtMACZ(i, j, k, b) * dt, b);
   } else {
-    dval.z = 0;
+    dval[2] = 0;
   }
 
   // Note (from Manta): The MAC version currently does not check whether source 
@@ -544,11 +634,11 @@ vec3 MacCormackClampMAC(
 void advectVel
 (
     float dt,
-    at::Tensor* tensor_flags,
-    at::Tensor* tensor_u,
-    at::Tensor* tensor_u_dst,
-    at::Tensor* tensor_fwd,
-    at::Tensor* tensor_bwd,
+    T& tensor_flags,
+    T& tensor_u,
+    T& tensor_u_dst,
+    T& tensor_fwd,
+    T& tensor_bwd,
     const bool is_3d,
     const std::string method_str,
     const int32_t boundary_width,
@@ -580,12 +670,15 @@ void advectVel
   const int32_t zsize = flags.zsize();
   const int32_t nbatch = flags.nbatch();
 
+  at::Backend bckd = flags.getBackend();
+  at::ScalarType real = flags.getGridType();
+  const T posCorrected = getType(bckd, real).zeros({3});
+
   for (int32_t b = 0; b < nbatch; b++) {
     MACGrid* cur_dst = (method == ADVECT_MACCORMACK_FLUIDNET) ?
                                   &fwd : &dst;
     int32_t k, j, i;
     const int32_t bnd = 1;
-#pragma omp parallel for collapse(3) private(k, j, i)
     for (k = 0; k < zsize; k++) {
       for (j = 0; j < ysize; j++) {
         for (i = 0; i < xsize; i++) {
@@ -593,12 +686,12 @@ void advectVel
               j < bnd || j > ysize - 1 - bnd ||
               (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
             // Manta zeros stuff on the border.
-            cur_dst->setSafe(i, j, k, b, vec3(0, 0, 0));
+            cur_dst->setSafe(i, j, k, b, posCorrected);
             continue;
           }
 
           // Forward step.
-          vec3 val;
+          T val;
           if (method == ADVECT_EULER_FLUIDNET ||
               method == ADVECT_MACCORMACK_FLUIDNET) {
             val = SemiLagrangeEulerFluidNetMAC(
@@ -607,7 +700,6 @@ void advectVel
           else {
           std::cout << "No defined method for MAC advection" << std::endl;
           }
-
           cur_dst->setSafe(i, j, k, b, val);  // Store in the output array
         }
       }
@@ -619,14 +711,13 @@ void advectVel
       // Otherwise we need to do the backwards step (which is a SemiLagrange
       // step on the forward data - hence we needed to finish the above loops
       // before moving on).
-#pragma omp parallel for collapse(3) private(k, j, i)
       for (k = 0; k < zsize; k++) { 
         for (j = 0; j < ysize; j++) { 
           for (i = 0; i < xsize; i++) {
             if (i < bnd || i > xsize - 1 - bnd ||
                 j < bnd || j > ysize - 1 - bnd ||
                 (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
-              bwd.setSafe(i, j, k, b, vec3(0, 0, 0));
+              bwd.setSafe(i, j, k, b, posCorrected);
               continue; 
             } 
 
@@ -640,7 +731,6 @@ void advectVel
       }
 
       // Now compute the correction.
-#pragma omp parallel for collapse(3) private(k, j, i)
       for (k = 0; k < zsize; k++) { 
         for (j = 0; j < ysize; j++) { 
           for (i = 0; i < xsize; i++) { 
@@ -651,7 +741,6 @@ void advectVel
       }
       
       // Now perform clamping.
-#pragma omp parallel for collapse(3) private(k, j, i)
       for (k = 0; k < zsize; k++) { 
         for (j = 0; j < ysize; j++) { 
           for (i = 0; i < xsize; i++) {
@@ -661,7 +750,7 @@ void advectVel
               continue;
             }
             // TODO(tompson): Perform our own clamping.
-            const vec3 dval = dst(i, j, k, b);
+            const T dval = dst(i, j, k, b);
             dst.setSafe(i, j, k, b, MacCormackClampMAC(
                 flags, vel, dval, orig, fwd, dt, i, j, k, b));
           }
@@ -671,3 +760,5 @@ void advectVel
   }
 
 }
+
+} // namespace fluid

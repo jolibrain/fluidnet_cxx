@@ -1,7 +1,8 @@
 #pragma once
-
 #include "ATen/ATen.h"
 
-bool toBool(const at::Tensor & self){
-   return self.equal(self.type().ones({}));
+namespace fluid {
+
+bool toBool(const at::Tensor & self);
+
 }

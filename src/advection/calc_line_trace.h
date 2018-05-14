@@ -1,38 +1,37 @@
-#include "../grid/grid.h"
+#pragma once
 
-void GetPixelCenter(const vec3& pos, int32_t* ix,
-                    int32_t* iy, int32_t* iz);
+#include "grid/grid.h"
 
-bool IsOutOfDomainReal(const vec3& pos, const FlagGrid& flags);
-
-bool IsBlockedCell(const FlagGrid& flags,
-                   int32_t i, int32_t j, int32_t k, int32_t b);
-
-void ClampToDomain(const FlagGrid& flags,
-                   int32_t* ix, int32_t* iy, int32_t* iz);
-
-void ClampToDomainReal(vec3& pos, const FlagGrid& flags);
-
-bool IsBlockedCellReal(const FlagGrid& flags,
-                       const vec3& pos, int32_t b);
-
-bool HitBoundingBox(const float* minB, const float* maxB, 
-                    const float* origin, const float* dir,
-                    float* coord);
-
-bool calcRayBoxIntersection(const vec3& pos,
-                            const vec3& dt,
-                            const vec3& ctr,
-                            const float hit_margin, vec3* ipos);
-
-bool calcRayBorderIntersection(const vec3& pos,
-                               const vec3& next_pos,
-                               const FlagGrid& flags,
-                               const float hit_margin,
-                               vec3* ipos);
-
-bool calcLineTrace(const vec3& pos, const vec3& delta,
-                   const FlagGrid& flags, const int32_t ibatch,
-                   vec3* new_pos, const bool do_line_trace);
-
-
+namespace fluid { 
+  void GetPixelCenter(const T& pos, T& ix);
+  
+  bool IsOutOfDomainReal(const T& pos, const FlagGrid& flags);
+  
+  bool IsBlockedCell(const FlagGrid& flags,
+                     const T& pos, int32_t b);
+  
+  void ClampToDomainReal(T& pos, const FlagGrid& flags);
+  
+  bool IsBlockedCellReal(const FlagGrid& flags,
+                         const T& pos, T b);
+  
+  bool HitBoundingBox(const T* minB, const T* maxB, 
+                      const T* origin, const T* dir,
+                      T* coord);
+  
+  bool calcRayBoxIntersection(const T& pos,
+                              const T& dt,
+                              const T& ctr,
+                              const T hit_margin, T* ipos);
+  
+  bool calcRayBorderIntersection(const T& pos,
+                                 const T& next_pos,
+                                 const FlagGrid& flags,
+                                 const T hit_margin,
+                                 T* ipos);
+  
+  bool calcLineTrace(const T& pos, const T& delta,
+                     const FlagGrid& flags, const T ibatch,
+                     T* new_pos, const bool do_line_trace);
+  
+} // namespace fluid 
