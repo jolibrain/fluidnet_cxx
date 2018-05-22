@@ -3,12 +3,7 @@
 #include <cassert>
 
 #include "type_test.h"
-#include "grid/grid.h"
-#include "advection/advection.h"
-#include "advection/bcs.h"
-#include "advection/div.h"
-#include "advection/solveLinearSys.h"
-#include "advection/updateVel.h"
+#include "fluid.h"
 
 using namespace at;
 using namespace fluid;

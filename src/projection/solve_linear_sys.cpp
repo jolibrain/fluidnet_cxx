@@ -1,4 +1,4 @@
-#include "solveLinearSys.h"
+#include "solve_linear_sys.h"
 
 namespace fluid {
 

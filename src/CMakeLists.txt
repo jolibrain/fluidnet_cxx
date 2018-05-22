@@ -4,19 +4,24 @@ SET(GRID
     )
 SET(ADVECTION
      advection/advection.cpp
-     advection/bcs.cpp
-     advection/div.cpp
-     advection/solveLinearSys.cpp
-     advection/updateVel.cpp
      advection/advect_type.cpp
      advection/calc_line_trace.cpp
    ) 
-
-ADD_LIBRARY(FluidNet SHARED ${GRID} ${ADVECTION})
+SET(BCS
+     boundaryCondition/bcs.cpp
+   )
+SET(PROJECTION
+     projection/div.cpp
+     projection/solve_linear_sys.cpp
+     projection/update_vel.cpp
+   )
+ADD_LIBRARY(FluidNet SHARED ${GRID} ${ADVECTION} ${BCS} ${PROJECTION})
 TARGET_INCLUDE_DIRECTORIES(FluidNet
    PUBLIC
        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/grid;
        ${CMAKE_CURRENT_SOURCE_DIR}/advection;
+       ${CMAKE_CURRENT_SOURCE_DIR}/boundaryCondition;
+       ${CMAKE_CURRENT_SOURCE_DIR}/projection;
        ${CMAKE_CURRENT_SOURCE_DIR}>
 )
 
