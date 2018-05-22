@@ -73,36 +73,35 @@ namespace fluid {
     }
     
     bool isFluid(int32_t i, int32_t j, int32_t k, int32_t b) const {
-      return toBool(data(i, j, k, 0, b).toType(at::kInt).__and__(TypeFluid) );
+      return toBool(data(i, j, k, 0, b).eq(TypeFluid) );
     }
 
     bool isFluid(T i, T j, T k, T b) const {
-      return toBool(data(i, j, k, at::infer_type(i).scalarTensor(0), b).toType(at::kInt).__and__(TypeFluid) );
+      return toBool(data(i, j, k, getType(bckd,at::kInt).scalarTensor(0), b).eq(TypeFluid) );
     }
 
-  
     bool isFluid(const T& pos, T b) const {
-      return toBool(data(pos, getType(bckd,at::kInt).scalarTensor(0), b).toType(at::kInt).__and__(TypeFluid) );
+      return toBool(data(pos, getType(bckd,at::kInt).scalarTensor(0), b).eq(TypeFluid) );
     }
   
     bool isObstacle(int32_t i, int32_t j, int32_t k, int32_t b) const {
-      return toBool(data(i, j, k, 0, b).toType(at::kInt).__and__(TypeObstacle) );
+      return toBool(data(i, j, k, 0, b).eq(TypeObstacle) );
     }
   
     bool isObstacle(const T& pos, T b) const {
-      return toBool(data(pos, getType(bckd,at::kInt).scalarTensor(0), b).toType(at::kInt).__and__(TypeObstacle) );
+      return toBool(data(pos, getType(bckd,at::kInt).scalarTensor(0), b).eq(TypeObstacle) );
     }
    
-   bool isStick(int32_t i, int32_t j, int32_t k, int32_t b) const {
-      return toBool(data(i, j, k, 0, b).toType(at::kInt).__and__(TypeStick) );
+    bool isStick(int32_t i, int32_t j, int32_t k, int32_t b) const {
+      return toBool(data(i, j, k, 0, b).eq(TypeStick) );
     }
     
     bool isEmpty(int32_t i, int32_t j, int32_t k, int32_t b) const {
-      return toBool(data(i, j, k, 0, b).toType(at::kInt).__and__(TypeEmpty) );
+      return toBool(data(i, j, k, 0, b).eq(TypeEmpty) );
     }
   
     bool isOutflow(int32_t i, int32_t j, int32_t k, int32_t b) const {
-      return toBool(data(i, j, k, 0, b).toType(at::kInt).__and__(TypeOutflow) );
+      return toBool(data(i, j, k, 0, b).eq(TypeOutflow) );
     }
   
     bool isOutOfDomain(int32_t i, int32_t j, int32_t k, int32_t b) const {
@@ -114,8 +113,6 @@ namespace fluid {
       return toBool( (i < 0).__or__(i >= xsize()).__or__(j < 0).__or__(j >= ysize()).__or__(k < 0)
              .__or__(k >= zsize()).__or__(b < 0).__or__(b >= nbatch()) );
     }
- 
-
  };
   
   class RealGrid : public GridBase {

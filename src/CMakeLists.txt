@@ -4,6 +4,10 @@ SET(GRID
     )
 SET(ADVECTION
      advection/advection.cpp
+     advection/bcs.cpp
+     advection/div.cpp
+     advection/solveLinearSys.cpp
+     advection/updateVel.cpp
      advection/advect_type.cpp
      advection/calc_line_trace.cpp
    ) 
