@@ -129,13 +129,16 @@ T flags_read;
 T density_read;
 bool is3D;
 
-bool succes = load_manta_file("../test_data/b15_2d_advect_openBounds_False_order_1.bin", p_read, U_read, flags_read, density_read, is3D);
+bool succes = loadMantaFile("../test_data/b15_2d_advect_openBounds_False_order_1.bin", p_read, U_read, flags_read, density_read, is3D);
 
 //plotTensor2D(p_read, 517, 517);
 //plotTensor2D(U_read.select(1,0), 516, 517);
 //plotTensor2D(U_read.select(1,1), 516, 517);
-plotTensor2D(density_read, 517, 517, "density.png");
+plotTensor2D(density_read, 517, 517, "density");
 
 //plotTensor2D(density_read.select(1,0), 516, 516);
+int dim = 2;
+std::string fn = std::to_string(dim) + "d_initial.bin";
+loadMantaBatch(fn);
 
 }

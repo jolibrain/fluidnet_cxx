@@ -46,7 +46,7 @@ void plotTensor2D(at::Tensor Ten, int img_w, int img_h, std::string wname)
   img_tensor.convertTo(img8uc,CV_8UC1, 255/(max-min),-255*min / (max - min));
   resize(img8uc, img_rsz, img_rsz.size(), 0, 0, cv::INTER_NEAREST);
   applyColorMap(img_rsz, img_col, cv::COLORMAP_JET);
-  std::string name = "pressure.png";
-  cv::imwrite(wname, img_col);
+  std::string out_name = wname + ".png";
+  cv::imwrite(out_name, img_col);
 }
 
