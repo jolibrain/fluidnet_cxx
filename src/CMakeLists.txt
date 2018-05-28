@@ -1,5 +1,5 @@
 SET(GRID
-     grid/bool_conversion.cpp 
+     grid/bool_conversion.cpp
      grid/grid.cpp
     )
 SET(ADVECTION

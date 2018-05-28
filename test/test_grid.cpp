@@ -1,5 +1,6 @@
 #include <sstream>
 #include <cassert>
+#include <tuple>
 
 #include "ATen/ATen.h"
 
@@ -11,6 +12,126 @@
 using namespace at;
 using namespace fluid;
 using namespace cv;
+
+void advectFluidNet(){
+   for (int dim = 2; dim < 4; dim++){
+      // Do advection using the 2 parameters and check against Manta.
+      std::vector<std::string> m_list = {"eulerFluidNet", "maccormackFluidNet"};
+      for (auto const& method: m_list){
+         for (int sampleOutsideFluid = 0; sampleOutsideFluid < 2; sampleOutsideFluid++){
+           std::string fn = std::to_string(dim) + "d_initial.bin";
+           at::Tensor p;
+           at::Tensor U;
+           at::Tensor flags;
+           at::Tensor density;
+           bool is3D;
+           
+           loadMantaBatch(fn, p, U, flags, density, is3D);
+           // ASSERT IS 3D
+
+           float dt = 0.1;
+           int boundaryWidth = 0;
+           at::Tensor maccormackStrength = CPU(at::kFloat).rand({1}); // default in [0,1]
+           assertNotAllEqual(p);
+         
+         }
+      } 
+   } 
+}
+
+void createJacobianTestData(at::Tensor& p, at::Tensor& U, at::Tensor& flags,
+                             at::Tensor& density) {
+
+   auto && Tundef = at::getType(at::Backend::Undefined, at::ScalarType::Undefined);
+
+   bool is3D = false;
+   int zStart = 0;
+   int zSize;
+ 
+   if (U.size(1) == 3) {
+      is3D = true;
+      zSize = 4; }
+   else { 
+   zSize = U.size(2); }
+
+   int bsize = std::min((int) U.size(0), (int) 3);
+   
+   if (p.type() != Tundef) {
+      p = p.narrow(2, zStart, zSize).contiguous();
+      p = p.narrow(0, 0, bsize).contiguous();
+   }
+   U = U.narrow(2, zStart, zSize).contiguous();
+   U = U.narrow(0, 0, bsize).contiguous();
+
+   if (flags.type() != Tundef) {
+      flags = flags.narrow(2, zStart, zSize).contiguous();
+      flags = flags.narrow(0, 0, bsize).contiguous();
+      
+      if (!(at::Scalar(at::max(at::abs(flags - TypeFluid))).toFloat() > 0)) {
+        AT_ERROR("All cells are fluid.");
+      } 
+   }
+   if (density.type() != Tundef) {
+      density = p.narrow(2, zStart, zSize).contiguous();
+      density = p.narrow(0, 0, bsize).contiguous();
+   }
+
+   
+}                         
+
+void testSetWallBcs(int dim, std::string fnInput, std::string fnOutput) {
+   
+   std::string fn = std::to_string(dim) + "d_" + fnInput;
+   at::Tensor undef1;
+   at::Tensor U;
+   at::Tensor flags;
+   bool is3D;
+   loadMantaBatch(fn, undef1, U, flags, undef1, is3D);
+ 
+   assertNotAllEqual(U);
+   assertNotAllEqual(flags);
+
+   if (!(is3D == (dim == 3))) {
+      AT_ERROR("Error with is3D at input");}
+
+   if (!(at::Scalar(at::max(at::abs(flags - TypeFluid))).toFloat() > 0)) {
+      AT_ERROR("All cells are fluid at input.");
+   }
+
+   fn = std::to_string(dim) + "d_" + fnOutput;
+   at::Tensor UManta;
+   at::Tensor undef2;
+   at::Tensor flagsManta;
+   loadMantaBatch(fn, undef2, UManta, flagsManta, undef2, is3D);
+
+   if (!(is3D == (dim == 3))) {
+      AT_ERROR("Error with is3D at output.");}
+   
+   if (!(flags.equal(flagsManta))) {
+      AT_ERROR("Flags changed!"); }
+
+   at::Tensor UOurs = U.clone();
+
+   fluid::setWallBcsForward(flags, UOurs, is3D);
+   at::Tensor err = UOurs - UManta;
+    
+   float err_abs = at::Scalar(at::max(at::abs(err))).toFloat();
+   float precision = 1e-6; 
+
+   if (err_abs < precision) {
+      std::cout << "Test " << dim << "d Set Wall BCs Forward: OK!" << std::endl;
+   }
+   else {
+   std::cout << "Test " << dim << "d Set Wall BCs Forward: FAILED (max error is " 
+   << err_abs << ")."  << std::endl;
+   }
+}
+
+void setWallBcs() {
+  for (int dim = 2; dim < 4; dim++){
+    testSetWallBcs(dim, "advect.bin", "setWallBcs1.bin");
+  }  
+}
 
 int main(){
 
@@ -78,8 +199,23 @@ std::cout << "\n";
 //std::cout << "\n";
 
 std::cout << "Advection of scalar ..." << std::endl;
-advectScalar(1., flagsGT, vel, rho, rho_dst, fwd, bwd, fwd_pos,
-             bwd_pos, false, "maccormackFluidNet", 1, false, 1); 
+const std::string method = "maccormackFluidNet";
+
+std::tuple<float, T&, T&, T&, T&, T&, T&, T&, T&,
+           bool, std::string, int32_t, bool, float>
+             args{1., flagsGT, vel, rho, rho_dst, fwd, bwd, fwd_pos,
+                  bwd_pos, false, method, 1, false, 1.};
+
+
+//  test::save_it_for_later<float, T&, T&, T&, T&, T&, T&, T&, T&,
+ //          bool, std::string, int32_t, bool, float> saved = {args, advectScalar};
+
+//advectScalar(std::get<0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13>(args)...);
+
+//test::profileAndTestCuda(advectScalar, 1., flagsGT, vel, rho, rho_dst, fwd, bwd, fwd_pos,
+//                   bwd_pos, false, "maccormackFluidNet", 1, false, 1);
+//advectScalar(1., flagsGT, vel, rho, rho_dst, fwd, bwd, fwd_pos,
+//             bwd_pos, false, "maccormackFluidNet", 1, false, 1); 
 std::cout << "\n";
 std::cout << "Advection of velocity ..." << std::endl;
 advectVel(1., flagsGT, vel, vel_dst, fwd_u, bwd_u,
@@ -123,22 +259,24 @@ velocityDivergenceForward(flagsGT, vel, div_test, false);
 //std::cout << fwd_pos << std::endl; 
 //std::cout << "\n";
 
-T p_read;
-T U_read;
-T flags_read;
-T density_read;
+Tensor p_read;
+Tensor U_read;
+Tensor flags_read;
+Tensor density_read;
 bool is3D;
-
-bool succes = loadMantaFile("../test_data/b15_2d_advect_openBounds_False_order_1.bin", p_read, U_read, flags_read, density_read, is3D);
 
 //plotTensor2D(p_read, 517, 517);
 //plotTensor2D(U_read.select(1,0), 516, 517);
 //plotTensor2D(U_read.select(1,1), 516, 517);
-plotTensor2D(density_read, 517, 517, "density");
+//plotTensor2D(density_read, 517, 517, "density");
 
 //plotTensor2D(density_read.select(1,0), 516, 516);
-int dim = 2;
-std::string fn = std::to_string(dim) + "d_initial.bin";
-loadMantaBatch(fn);
+int dim = 3;
+std::string fn = std::to_string(dim) + "d_solvePressure.bin";
+std::cout << fn << std::endl;
+
+//loadMantaBatch(fn, p_read, U_read, flags_read, density_read, is3D);
+//std::cout << flags_read << std::endl;
+setWallBcs();
 
 }

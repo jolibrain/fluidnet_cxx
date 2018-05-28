@@ -7,5 +7,3 @@ bool toBool(const at::Tensor & self) {
 }
 
 } // namespace fluid
-
-

@@ -7,13 +7,13 @@
 #include <iomanip>
 #include <cstring>
 #include <cstdlib>
-#include <stdexcept>
 
 #include <glob.h>  // glob(), globfree() to parse through a directory
 #include <vector>
 #include <string.h> //memset
 
 #include "ATen/ATen.h"
+#include "grid/bool_conversion.h"
 
 // Load data from one .bin file generated in python with Manta
 bool loadMantaFile
@@ -43,7 +43,7 @@ bool loadMantaFile
       std::cout << "Unable to open the data file!!!" <<std::endl;
       std::cout << "Please make sure your bin file is in the same location as the program!"<< std::endl;
       //std::system("PAUSE");
-      return(1);  
+      return(false);  
   }
   
   int transpose = 0;
@@ -51,6 +51,7 @@ bool loadMantaFile
   int ny = 0;
   int nz = 0;
   int is3D_ = 0;
+  
   file.read(reinterpret_cast<char*>(&transpose), sizeof(int) );
   file.read(reinterpret_cast<char*>(&nx), sizeof(int) );
   file.read(reinterpret_cast<char*>(&ny), sizeof(int) );
@@ -58,21 +59,25 @@ bool loadMantaFile
   file.read(reinterpret_cast<char*>(&is3D_), sizeof(int) );
   is3D = (is3D_ == 1);
   const int numel = nx*ny*nz;
-  
   float velx[numel];
   float vely[numel];
-  float* velz;
+  float velz[numel];
+  // Ignore border pixels
+  //nx -= 1;
+  //ny -= 1;
+
   file.read(reinterpret_cast<char*>(&velx), sizeof(velx) );
   file.read(reinterpret_cast<char*>(&vely), sizeof(vely) );
   at::Tensor Ux = Tfloat.tensorFromBlob(velx, {numel});
   at::Tensor Uy = Tfloat.tensorFromBlob(vely, {numel});
   at::Tensor Uz;
   if (is3D) {
-    velz = new float[numel];
+  //  nz -= 1;
+    //float velz[numel];
     file.read(reinterpret_cast<char*>(&velz), sizeof(velz) );
     Uz = Tfloat.tensorFromBlob(velz, {numel});
   }
-  
+ 
   float pres[numel];
   file.read(reinterpret_cast<char*>(&pres), sizeof(pres) );
   p = Tfloat.tensorFromBlob(pres, {numel});
@@ -85,7 +90,7 @@ bool loadMantaFile
   float rho[numel];
   file.read(reinterpret_cast<char*>(&rho), sizeof(rho) );
   density = Tfloat.tensorFromBlob(rho, {numel});
-  
+ 
   Ux.resize_({1, 1, nz, ny, nx});
   Uy.resize_({1, 1, nz, ny, nx});
   if (is3D) {
@@ -94,7 +99,7 @@ bool loadMantaFile
   p.resize_({1, 1, nz, ny, nx});
   flags.resize_({1, 1, nz, ny, nx});
   density.resize_({1, 1, nz, ny, nx});
-  
+ 
   if (is3D) {
     U = at::cat({Ux, Uy, Uz}, 1).contiguous();
   } 
@@ -102,9 +107,6 @@ bool loadMantaFile
     U = at::cat({Ux, Uy}, 1).contiguous();
   }
   
-  if (is3D) {
-    delete[] velz;
-  }
   file.close();
   return true;
 }
@@ -119,9 +121,10 @@ std::vector<std::string> globVector(const std::string& pattern){
     int rtrn_val = glob(pattern.c_str(), GLOB_TILDE, NULL, &glob_result);
     if(rtrn_val != 0) {
        globfree(&glob_result);
-       std::stringstream ss;
-       ss << "glob() failed with return value " <<  rtrn_val << std::endl;
-       throw std::runtime_error(ss.str());
+       std::string ss;
+       ss = "glob() failed with return value " + std::to_string(rtrn_val);
+       const char *css = ss.c_str();
+       AT_ERROR(css);
     }
 
     std::vector<std::string> files;
@@ -133,38 +136,64 @@ std::vector<std::string> globVector(const std::string& pattern){
     return files;
 }
 
-void loadMantaBatch(std::string fn){
+// Funtion to call loadMantaFile on multiple files to concat them into a single batch.
+void loadMantaBatch(std::string fn,
+                    at::Tensor& p_out,
+                    at::Tensor& U_out,
+                    at::Tensor& flags_out,
+                    at::Tensor& density_out,
+                    bool& is3D)
+{
+   auto && Tundef = at::getType(at::Backend::Undefined, at::ScalarType::Undefined);
+
+   if (p_out.type() != Tundef || U_out.type() != Tundef || density_out.type()
+       != Tundef || flags_out.type() != Tundef) {
+      AT_ERROR("Load Manta Batch: input tensors must be Undefined");
+   }
    std::string path = "../test_data/b*_" + fn;
    std::vector<std::string> files = globVector(path);
    if (files.size() != 16){
-     std::stringstream ss;
-     ss << "loadMantaBatch(" << fn <<") must have 16 files per batch" << std::endl;
-    throw std::runtime_error(ss.str());
+     std::string ss;
+     ss = "loadMantaBatch(" + fn + ") must have 16 files per batch";
+     const char *css = ss.c_str();
+     AT_ERROR(css);
    } 
-  
    std::vector<at::Tensor> p;
    std::vector<at::Tensor> U;
-   std::vector<at::Tensor>flags;
-   std::vector<at::Tensor>density;
-   bool is3D;
-
+   std::vector<at::Tensor> flags;
+   std::vector<at::Tensor> density;
+   
    for (auto const& file: files){
      at::Tensor curP;
      at::Tensor curU;
      at::Tensor curFlags;
      at::Tensor curDensity;
      bool curIs3D;
-
      bool succes = loadMantaFile(file, curP, curU, curFlags, curDensity, curIs3D);
      p.push_back(curP);
      U.push_back(curU);
      flags.push_back(curFlags);
+     density.push_back(curDensity);
+     is3D = curIs3D;
    }
-
-   at::Tensor p_out;
+    
    p_out = at::cat(p, 0);
-   std::cout << p_out << std::endl;
+   U_out = at::cat(U, 0);
+   flags_out = at::cat(flags, 0);
+   density_out = at::cat (density, 0);
+}
+
+// Make sure we load samples from file that aren't all the same, otherwise
+// we're not really testing the batch dimension.
+void assertNotAllEqual(at::Tensor t)
+{
+   if (t.size(0) == 1){
+    return; // Only one sample, so it's correct.
+   }
    
-
-
+   at::Tensor first = t.select(0,0);
+   at::Tensor others = t.select(0,10);
+   if(fluid::toBool(others - at::max(at::abs(first.expand_as(others))) < 1e-5)){
+     AT_ERROR("All samples are equal!");
+   }
 }
