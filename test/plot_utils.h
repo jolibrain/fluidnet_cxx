@@ -1,6 +1,6 @@
 #pragma once
 
-#include<string.h>
+#include <string.h>
 
 #include "ATen/ATen.h"
 
@@ -13,31 +13,49 @@ void plotTensor2D(at::Tensor Ten, int img_w, int img_h, std::string wname)
   at::Tensor T_min = at::min(Ten);
   at::Tensor T_max = at::max(Ten);
   at::Tensor T_scaled = (Ten - T_min) / (T_max - T_min);
-  
-  int height = Ten.size(3);
-  int width = Ten.size(4);
-  
-  auto T_a = T_scaled.accessor<float,5>();
-  
+
+    
+  int height = Ten.size(Ten.dim()-2);
+  int width = Ten.size(Ten.dim()-1);
+
   cv::Mat img_tensor(width, height, CV_32FC1);
   cv::Mat img_rsz(img_w, img_h, CV_8UC1);
   cv::Mat img8uc;
   cv::Mat img_col;
   
-  for (int h = 0; h < height; h++) {
-     for (int w = 0; w < width; w++) {
-        img_tensor.at<float>(w,h) = T_a[0][0][0][h][w];
-     }
+  if (Ten.dim() == 5) {  
+    auto T_a = T_scaled.accessor<float,5>();
+    for (int h = 0; h < height; h++) {
+       for (int w = 0; w < width; w++) {
+          
+          img_tensor.at<float>(w,h) = T_a[0][0][0][h][w];
+       }
+    } }
+  else if (Ten.dim() == 4) {
+    auto T_a = T_scaled.accessor<float,4>();
+    for (int h = 0; h < height; h++) {
+       for (int w = 0; w < width; w++) {
+          img_tensor.at<float>(w,h) = T_a[0][0][h][w];
+       }
+    } }
+  else if (Ten.dim() == 3) {
+    auto T_a = T_scaled.accessor<float,3>();
+    for (int h = 0; h < height; h++) {
+       for (int w = 0; w < width; w++) {
+          img_tensor.at<float>(w,h) = T_a[0][h][w];
+       }
+    } }
+  else if (Ten.dim() == 2) {
+    auto T_a = T_scaled.accessor<float,2>();
+    for (int h = 0; h < height; h++) {
+       for (int w = 0; w < width; w++) {
+          img_tensor.at<float>(w,h) = T_a[h][w];
+       }
+    } }
+  else {
+    AT_ERROR("Plot: error in input dimension!");
   }
-  //std::cout << img_tensor << std::endl;
-  
-  //resize(img_tensor, img_rsz, img_rsz.size(), cv::INTER_NEAREST);
-  //std::cout << img_tensor << std::endl;
-  //std::cout << img_rsz << std::endl;
 
-
- // 
- // std::cout << "Test resize" << std::endl;
   double min;
   double max;
   cv::minMaxLoc(img_tensor, &min, &max);

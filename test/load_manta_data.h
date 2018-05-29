@@ -2,7 +2,6 @@
 
 #include <string>
 #include <fstream>
-#include <fstream>
 #include <iostream>
 #include <iomanip>
 #include <cstring>
@@ -42,7 +41,6 @@ bool loadMantaFile
   if(file.fail()) {
       std::cout << "Unable to open the data file!!!" <<std::endl;
       std::cout << "Please make sure your bin file is in the same location as the program!"<< std::endl;
-      //std::system("PAUSE");
       return(false);  
   }
   
@@ -62,34 +60,40 @@ bool loadMantaFile
   float velx[numel];
   float vely[numel];
   float velz[numel];
-  // Ignore border pixels
-  //nx -= 1;
-  //ny -= 1;
+ 
+  // Clones are necessay everywhere after reading because
+  // tensorFromBlob does not own memory (unable to resize).
 
   file.read(reinterpret_cast<char*>(&velx), sizeof(velx) );
   file.read(reinterpret_cast<char*>(&vely), sizeof(vely) );
-  at::Tensor Ux = Tfloat.tensorFromBlob(velx, {numel});
-  at::Tensor Uy = Tfloat.tensorFromBlob(vely, {numel});
+  at::Tensor Ux_read = Tfloat.tensorFromBlob(velx, {numel});
+  at::Tensor Uy_read = Tfloat.tensorFromBlob(vely, {numel});
+  at::Tensor Ux = Ux_read.clone();
+  at::Tensor Uy = Uy_read.clone();
   at::Tensor Uz;
   if (is3D) {
   //  nz -= 1;
     //float velz[numel];
     file.read(reinterpret_cast<char*>(&velz), sizeof(velz) );
-    Uz = Tfloat.tensorFromBlob(velz, {numel});
+    at::Tensor Uz_read = Tfloat.tensorFromBlob(velz, {numel});
+    Uz = Uz_read.clone();
   }
- 
+  
   float pres[numel];
   file.read(reinterpret_cast<char*>(&pres), sizeof(pres) );
-  p = Tfloat.tensorFromBlob(pres, {numel});
-  
+  at::Tensor p_read = Tfloat.tensorFromBlob(pres, {numel});
+  p = p_read.clone(); 
+
   int flagIN[numel];
   file.read(reinterpret_cast<char*>(&flagIN), sizeof(flagIN) );
-  flags = Tint.tensorFromBlob(flagIN, {numel});
+  at::Tensor flags_read = Tint.tensorFromBlob(flagIN, {numel});
+  flags = flags_read.clone();
   flags = flags.toType(Tfloat);
-  
+ 
   float rho[numel];
   file.read(reinterpret_cast<char*>(&rho), sizeof(rho) );
-  density = Tfloat.tensorFromBlob(rho, {numel});
+  at::Tensor density_read = Tfloat.tensorFromBlob(rho, {numel});
+  density = density_read.clone();
  
   Ux.resize_({1, 1, nz, ny, nx});
   Uy.resize_({1, 1, nz, ny, nx});
@@ -99,7 +103,7 @@ bool loadMantaFile
   p.resize_({1, 1, nz, ny, nx});
   flags.resize_({1, 1, nz, ny, nx});
   density.resize_({1, 1, nz, ny, nx});
- 
+
   if (is3D) {
     U = at::cat({Ux, Uy, Uz}, 1).contiguous();
   } 
@@ -122,7 +126,7 @@ std::vector<std::string> globVector(const std::string& pattern){
     if(rtrn_val != 0) {
        globfree(&glob_result);
        std::string ss;
-       ss = "glob() failed with return value " + std::to_string(rtrn_val);
+       ss = "glob() failed with return value " + std::to_string(rtrn_val) + ". Check the file name";
        const char *css = ss.c_str();
        AT_ERROR(css);
     }

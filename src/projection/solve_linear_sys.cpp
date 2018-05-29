@@ -2,32 +2,48 @@
 
 namespace fluid {
 
-void solveLinearSystemJacobi
+float solveLinearSystemJacobi
 (
-   T* tensor_p,
-   T* tensor_flags,
-   T* tensor_div,
-   T* tensor_p_prev,
-   T* tensor_p_delta,
-   T* tensor_p_delta_norm,
+   T& tensor_p,
+   T& tensor_flags,
+   T& tensor_div,
    const bool is_3d,
-   const float p_tol,
-   const int max_iter,
-   const bool verbose
+   const float p_tol = 1e-5,
+   const int max_iter = 1000,
+   const bool verbose = false
 ) {
-  // TODO: check sizes as was done in Lua stack 
+  // Check arguments
+  AT_ASSERT(tensor_p.dim() == 5 && tensor_flags.dim() == 5 && tensor_div.dim() == 5,
+             "Dimension mismatch");
+  AT_ASSERT(tensor_flags.size(1) == 1, "flags is not scalar");
+  int bsz = tensor_flags.size(0);
+  int d = tensor_flags.size(2);
+  int h = tensor_flags.size(3);
+  int w = tensor_flags.size(4);
+  AT_ASSERT(tensor_p.dim() == tensor_flags.dim(), "size mismatch");
+  AT_ASSERT(tensor_div.dim() == tensor_flags.dim(), "size mismatch");
+  if (!is_3d) {
+    AT_ASSERT(d == 1, "d > 1 for a 2D domain");
+  } 
+
+  AT_ASSERT(tensor_p.is_contiguous() && tensor_flags.is_contiguous() &&
+            tensor_div.is_contiguous(), "Input is not contiguous");
+   
+  T tensor_p_prev = infer_type(tensor_p).zeros({bsz, 1, d, h, w});
+  T tensor_p_delta = infer_type(tensor_p).zeros({bsz, 1, d, h, w});
+  T tensor_p_delta_norm = infer_type(tensor_p).zeros({bsz});
+   
   if (max_iter < 1) {
      AT_ERROR("At least 1 iteration is needed (maxIter < 1)");
   }
 
-  FlagGrid flags(*tensor_flags, is_3d);
-  RealGrid pressure(*tensor_p, is_3d);
-  RealGrid pressure_prev(*tensor_p_prev, is_3d);
-  RealGrid div(*tensor_div, is_3d);
+  FlagGrid flags(tensor_flags, is_3d);
+  RealGrid pressure(tensor_p, is_3d);
+  RealGrid pressure_prev(tensor_p_prev, is_3d);
+  RealGrid div(tensor_div, is_3d);
   
   // Initialize the pressure to zero.
-  tensor_p->zero_();
-  tensor_p_prev->zero_();
+  tensor_p.zero_();
   
   // Start with the output of the next iteration going to pressure.
   RealGrid* cur_pressure = &pressure;
@@ -40,7 +56,7 @@ void solveLinearSystemJacobi
   const int64_t numel = xsize * ysize * zsize;
  
   T residual;
-  T at_zero = infer_type(*tensor_p).scalarTensor(0);
+  T at_zero = infer_type(tensor_p).scalarTensor(0);
   int64_t iter = 0;
   while (true) {
     const int32_t bnd =1;
@@ -95,7 +111,8 @@ void solveLinearSystemJacobi
                p6 = pC;
              }
            
-             const T denom = flags.is_3d() ? infer_type(*tensor_p).scalarTensor(6) : infer_type(*tensor_p).scalarTensor(4);
+             const T denom = flags.is_3d() ? infer_type(tensor_p).scalarTensor(6) 
+                       : infer_type(tensor_p).scalarTensor(4);
              const T v = (p1 + p2 + p3 + p4 + p5 + p6 + divergence) / denom;
              (*cur_pressure)(i, j, k, b) = v;
 
@@ -108,12 +125,12 @@ void solveLinearSystemJacobi
     // Now calculate the change in pressure up to a sign (the sign might be 
     // incorrect, but we don't care).
     // p_delta = p - p_prev
-    at::sub_out(*tensor_p_delta, *tensor_p, *tensor_p_prev);
-    (*tensor_p_delta).resize_({nbatch, numel}); 
+    at::sub_out(tensor_p_delta, tensor_p, tensor_p_prev);
+    tensor_p_delta.resize_({nbatch, numel}); 
     // Calculate L2 norm over dim 2.
-    at::norm_out(*tensor_p_delta_norm, *tensor_p_delta, at::Scalar(2), 1);
-    (*tensor_p_delta).resize_({nbatch, 1, zsize, ysize, xsize});
-    residual = tensor_p_delta_norm->max();
+    at::norm_out(tensor_p_delta_norm, tensor_p_delta, at::Scalar(2), 1);
+    tensor_p_delta.resize_({nbatch, 1, zsize, ysize, xsize});
+    residual = tensor_p_delta_norm.max();
     if (verbose) {
       std::cout << "Jacobi iteration " << (iter + 1) << ":residual "
                 << residual << std::endl;
@@ -145,11 +162,11 @@ void solveLinearSystemJacobi
   // If we terminated with the cur_pressure pointing to the tmp array, then we
   // have to copy the pressure back into the output tensor.
   if (cur_pressure == &pressure_prev) {
-    tensor_p->copy_(*tensor_p_prev);  // p = p_prev
+    tensor_p.copy_(tensor_p_prev);  // p = p_prev
   }
 
   // TODO: write mean-subtraction (FluidNet does it in Lua)
-
+  return at::Scalar(residual).toFloat();
 }
 
 } // namespace fluid 
