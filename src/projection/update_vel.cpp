@@ -6,15 +6,43 @@ namespace fluid {
 // velocityUpdateForward
 // *****************************************************************************
 
+// Calculate the pressure gradient and subtract it into (i.e. calculate
+// U' = U - grad(p)). Some care must be taken with handling boundary conditions.
+// This function mimics correctVelocity in Manta.
+// NOTE: velocity update is done IN-PLACE.
+// 
+// input U - vel field (size(2) can be 2 or 3, indicating 2D / 3D)
+// input flags - input occupancy grid
+// input p - scalar pressure field.
+
 void velocityUpdateForward
 (
-    T& tensor_flags,
     T& tensor_u,
-    T& tensor_p,
-    const bool is_3d
+    T& tensor_flags,
+    T& tensor_p
 ) {
-  // TODO do size checking
-  // on the lua stack.
+  // Check arguments.
+  AT_ASSERT(tensor_u.dim() == 5 && tensor_flags.dim() == 5 && tensor_p.dim() == 5,
+             "Dimension mismatch");
+  AT_ASSERT(tensor_flags.size(1) == 1, "flags is not scalar");
+  int bsz = tensor_flags.size(0);
+  int d = tensor_flags.size(2);
+  int h = tensor_flags.size(3);
+  int w = tensor_flags.size(4);
+
+  bool is_3d = (tensor_u.size(1) == 3);
+  if (!is_3d) {
+    AT_ASSERT(d == 1, "d > 1 for a 2D domain");
+    AT_ASSERT(tensor_u.size(4) == w, "2D velocity field must have only 2 channels");
+  }
+
+  AT_ASSERT(tensor_u.size(0) == bsz && tensor_u.size(2) == d && tensor_u.size(3) == h
+      && tensor_u.size(4) == w, "size mismatch");
+  AT_ASSERT(tensor_p.is_same_size(tensor_flags), "size mismatch");
+
+  AT_ASSERT(tensor_u.is_contiguous() && tensor_flags.is_contiguous() &&
+            tensor_p.is_contiguous(), "Input is not contiguous");
+
 
   FlagGrid flags(tensor_flags, is_3d);
   MACGrid vel(tensor_u, is_3d);

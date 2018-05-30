@@ -1,8 +1,9 @@
 #include "advection.h"
 
 namespace fluid {
+
 // *****************************************************************************
-// Advect Scalar
+// AdvectScalar
 // *****************************************************************************
 
 T SemiLagrangeEulerFluidNet
@@ -226,25 +227,70 @@ T MacCormackClampFluidNet
   return dval;
 }
 
+// Advect scalar field 'p' by the input vel field 'u'.
+// 
+// @input dt - timestep (seconds).
+// @input s - input scalar field to advect
+// @input U - input vel field (size(2) can be 2 or 3, indicating 2D / 3D)
+// @input flags - input occupancy grid
+// @input method - OPTIONAL - "eulerFluidNet", "maccormackFluidNet"
+// @input inplace - Perform inplace advection or return sDst
+// @input sDst - If inplace is false this will be the returned scalar field. Otherwise advection will be performed in-place.
+// @param sampleOutsideFluid - OPTIONAL - For density advection we do not want
+// to advect values inside non-fluid cells and so this should be set to false.
+// For other quantities (like temperature), this should be true.
+// @param maccormackStrength - OPTIONAL - (default 0.75) A strength parameter
+// will make the advection eularian (with values interpolating in between). A
+// value of 1 (which implements the update from An Unconditionally Stable
+// MaCormack Method) tends to add too much high-frequency detail
+// @param boundaryWidth - OPTIONAL - boundary width. (default 1)
+
 void advectScalar
 (
     float dt,
     T& tensor_flags,
     T& tensor_u,
     T& tensor_s,
+    const bool inplace,
     T& tensor_s_dst,
-    T& tensor_fwd,
-    T& tensor_bwd,
-    T& tensor_fwd_pos,
-    T& tensor_bwd_pos,
-    const bool is_3d,
     const std::string method_str,
     const int32_t boundary_width,
     const bool sample_outside_fluid,
     const float maccormack_strength
 ) {
-  // TODO: check sizes (see lua). We also treat 2D advection as 3D (with depth = 1) and
+  // We treat 2D advection as 3D (with depth = 1) and
   // no 'w' component for velocity.
+   
+  // Check arguments
+  AT_ASSERT(tensor_s.dim() == 5 && tensor_u.dim() == 5 && tensor_flags.dim() == 5,
+             "Dimension mismatch");
+  AT_ASSERT(tensor_flags.size(1) == 1, "flags is not scalar");
+  int bsz = tensor_flags.size(0);
+  int d = tensor_flags.size(2);
+  int h = tensor_flags.size(3);
+  int w = tensor_flags.size(4);
+  AT_ASSERT(tensor_s.is_same_size(tensor_flags), "size mismatch");
+
+  bool is_3d = (tensor_u.size(1) == 3);
+  if (!is_3d) {
+     AT_ASSERT(d == 1, "2D velocity field but zdepth > 1");
+     AT_ASSERT(tensor_u.size(1) == 2, "2D velocity field must have only 2 channels");
+  }
+  AT_ASSERT((tensor_u.size(0) == bsz && tensor_u.size(2) == d &&
+             tensor_u.size(3) == h && tensor_u.size(4) == w), "Size mismatch");
+
+  AT_ASSERT(tensor_s.is_contiguous() && tensor_u.is_contiguous() &&
+            tensor_flags.is_contiguous(), "Input is not contiguous");
+
+  AT_ASSERT(tensor_s_dst.dim() == 5, "Size mismatch");
+  AT_ASSERT(tensor_s_dst.is_contiguous() == 5, "Size mismatch");
+  AT_ASSERT(tensor_s_dst.is_same_size(tensor_s), "Size mismatch");
+  
+  T tensor_fwd     = infer_type(tensor_flags).zeros({bsz, 1, d, h, w});  
+  T tensor_bwd     = infer_type(tensor_flags).zeros({bsz, 1, d, h, w}); 
+  T tensor_fwd_pos = infer_type(tensor_flags).zeros({bsz, tensor_u.size(1), d, h, w});
+  T tensor_bwd_pos = infer_type(tensor_flags).zeros({bsz, tensor_u.size(1), d, h, w}); 
+  
   FlagGrid flags(tensor_flags, is_3d);
   MACGrid vel(tensor_u, is_3d);
   RealGrid src(tensor_s, is_3d);
@@ -374,8 +420,10 @@ void advectScalar
     }
   }
 
+  if (inplace) {
+    tensor_s.copy_(tensor_s_dst);
+  }
 }
-
 
 // *****************************************************************************
 // Advect Velocity
@@ -407,7 +455,6 @@ T SemiLagrangeEulerFluidNetMAC(
   pos[0] = i + 0.5;
   pos[1] = j + 0.5;
   pos[2] = k + 0.5;
-
 
   // FluidNet: We floatly want to clamp to the SMALLEST of the steps in each
   // dimension, however this is OK for now (because doing so would expensive)...
@@ -631,21 +678,60 @@ T MacCormackClampMAC(
   return dval;
 }
 
+// Advect velocity field 'u' by itself and store in uDst.
+// 
+// @input dt - timestep (seconds).
+// @input U - input vel field (size(2) can be 2 or 3, indicating 2D / 3D)
+// @input flags - input occupancy grid
+// @input method - OPTIONAL - "eulerFluidNet", "maccormackFluidNet" (default)
+// @input inplace - If true, performs advection in place.
+// @input UDst - If inplace is true then this will be the returned
+// velocity field. Otherwise advection will be performed in-place.
+// @input maccormackStrength - OPTIONAL - (default 0.75) A strength parameter
+// will make the advection more 1st order (with values interpolating in
+// between). A value of 1 (which implements the update from "An Unconditionally
+// Stable MaCormack Method") tends to add too much high-frequency detail.
+// @input boundaryWidth - OPTIONAL - boundary width. (default 1)
+
 void advectVel
 (
     float dt,
     T& tensor_flags,
     T& tensor_u,
+    const bool inplace,
     T& tensor_u_dst,
-    T& tensor_fwd,
-    T& tensor_bwd,
-    const bool is_3d,
     const std::string method_str,
     const int32_t boundary_width,
     const float maccormack_strength
 ) {
-  // TODO: Check sizes. We also treat 2D advection as 3D (with depth = 1) and
+  // We treat 2D advection as 3D (with depth = 1) and
   // no 'w' component for velocity.
+
+  // Check arguments
+  AT_ASSERT(tensor_u.dim() == 5 && tensor_flags.dim() == 5, "Dimension mismatch");
+  AT_ASSERT(tensor_flags.size(1) == 1, "flags is not scalar");
+  int bsz = tensor_flags.size(0);
+  int d = tensor_flags.size(2);
+  int h = tensor_flags.size(3);
+  int w = tensor_flags.size(4);
+
+  bool is_3d = (tensor_u.size(1) == 3);
+  if (!is_3d) {
+     AT_ASSERT(d == 1, "2D velocity field but zdepth > 1");
+     AT_ASSERT(tensor_u.size(1) == 2, "2D velocity field must have only 2 channels");
+  }
+  AT_ASSERT((tensor_u.size(0) == bsz && tensor_u.size(2) == d &&
+             tensor_u.size(3) == h && tensor_u.size(4) == w), "Size mismatch");
+
+  AT_ASSERT(tensor_u.is_contiguous() && tensor_flags.is_contiguous(),
+            "Input is not contiguous");
+
+  AT_ASSERT(tensor_u_dst.dim() == 5, "Size mismatch");
+  AT_ASSERT(tensor_u_dst.is_contiguous() == 5, "Size mismatch");
+  AT_ASSERT(tensor_u_dst.is_same_size(tensor_u), "Size mismatch");
+  
+  T tensor_fwd = infer_type(tensor_flags).zeros({bsz, tensor_u.size(1), d, h, w});
+  T tensor_bwd = infer_type(tensor_flags).zeros({bsz, tensor_u.size(1), d, h, w}); 
 
   AdvectMethod method = StringToAdvectMethod(method_str);
 
@@ -758,7 +844,9 @@ void advectVel
       }
     }
   }
-
+  if (inplace) {
+    tensor_u.copy_(tensor_u_dst);
+  }
 }
 
 } // namespace fluid

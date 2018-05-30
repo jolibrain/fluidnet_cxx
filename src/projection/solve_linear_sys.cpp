@@ -1,6 +1,25 @@
+#include <memory>
 #include "solve_linear_sys.h"
 
 namespace fluid {
+
+// *****************************************************************************
+// solveLinearSystemJacobi
+// *****************************************************************************
+
+// Solve the linear system using the Jacobi method.
+// Note: Since we don't receive a velocity field, we need to receive the is3D
+// flag from the caller.
+// 
+// input p: The output pressure field (i.e. the solution to A * p = div)
+// input flags: The input flag grid.
+// input div: The velocity divergence.
+// input is3D: If true then we expect a 3D domain.
+// input pTol: OPTIONAL (default = 1e-5), ||p - p_prev|| termination cond.
+// input maxIter: OPTIONAL (default = 1000), max number of Jacobi iterations.
+// input verbose: OPTIONAL (default = false), if true print out iteration res.
+// 
+// output: the max pTol across the batches.
 
 float solveLinearSystemJacobi
 (
@@ -12,7 +31,7 @@ float solveLinearSystemJacobi
    const int max_iter = 1000,
    const bool verbose = false
 ) {
-  // Check arguments
+  // Check arguments.
   AT_ASSERT(tensor_p.dim() == 5 && tensor_flags.dim() == 5 && tensor_div.dim() == 5,
              "Dimension mismatch");
   AT_ASSERT(tensor_flags.size(1) == 1, "flags is not scalar");
@@ -20,8 +39,8 @@ float solveLinearSystemJacobi
   int d = tensor_flags.size(2);
   int h = tensor_flags.size(3);
   int w = tensor_flags.size(4);
-  AT_ASSERT(tensor_p.dim() == tensor_flags.dim(), "size mismatch");
-  AT_ASSERT(tensor_div.dim() == tensor_flags.dim(), "size mismatch");
+  AT_ASSERT(tensor_p.is_same_size(tensor_flags), "size mismatch");
+  AT_ASSERT(tensor_div.is_same_size(tensor_flags), "size mismatch");
   if (!is_3d) {
     AT_ASSERT(d == 1, "d > 1 for a 2D domain");
   } 
@@ -46,52 +65,63 @@ float solveLinearSystemJacobi
   tensor_p.zero_();
   
   // Start with the output of the next iteration going to pressure.
-  RealGrid* cur_pressure = &pressure;
-  RealGrid* cur_pressure_prev = &pressure_prev;
+
+  auto cur_pressure = tensor_p.accessor<float,5>();
+  auto cur_pressure_prev = tensor_p_prev.accessor<float,5>();
+  auto div_a = tensor_div.accessor<float,5>();
+  //RealGrid* cur_pressure_prev = &pressure_prev;
   
   const int32_t nbatch = flags.nbatch();
   const int64_t xsize = flags.xsize();
   const int64_t ysize = flags.ysize();
   const int64_t zsize = flags.zsize();
   const int64_t numel = xsize * ysize * zsize;
- 
+
   T residual;
   T at_zero = infer_type(tensor_p).scalarTensor(0);
+
   int64_t iter = 0;
   while (true) {
     const int32_t bnd =1;
     int32_t b, k, j, i;
     // Kernel: Jacobi Iteration
     for (b = 0; b < nbatch; b++) {
+#pragma omp parallel for collapse(3) private (k, j, i)
       for (k = 0; k < zsize; k++) {
         for (j = 0; j < ysize; j++) {
           for (i = 0; i < xsize; i++) {
-            
              if (i < bnd || i > flags.xsize() - 1 - bnd ||
                  j < bnd || j > flags.ysize() - 1 - bnd ||
-                 (flags.is_3d() && (k < bnd || k > flags.zsize() - 1 - bnd))) {
-               (*cur_pressure)(i, j, k, b) = 0;  // Zero pressure on the border.
-             continue;
+                (flags.is_3d() && (k < bnd || k > flags.zsize() - 1 - bnd))) {
+               cur_pressure[b][0][k][j][i] = 0;  // Zero pressure on the border.
+               continue;
              }
 
              if (flags.isObstacle(i, j, k, b)) {
-               (*cur_pressure)(i, j, k, b) = 0;
-             continue;
+               cur_pressure[b][0][k][j][i] = 0;
+               continue;
              }
            
              // Otherwise in a fluid or empty cell.
              // TODO(tompson): Is the logic here correct? Should empty cells be non-zero?
-             const T divergence = div(i, j, k, b);
+#pragma omp atomic
+             const float divergence = div_a[b][0][k][j][i];
            
              // Get all the neighbors
-             const T pC = (*cur_pressure_prev)(i, j, k, b);
-           
-             T p1 = (*cur_pressure_prev)(i - 1, j, k, b);
-             T p2 = (*cur_pressure_prev)(i + 1, j, k, b);
-             T p3 = (*cur_pressure_prev)(i, j - 1, k, b);
-             T p4 = (*cur_pressure_prev)(i, j + 1, k, b);
-             T p5 = flags.is_3d() ? (*cur_pressure_prev)(i, j, k - 1, b) : at_zero;
-             T p6 = flags.is_3d() ? (*cur_pressure_prev)(i, j, k + 1, b) : at_zero;
+#pragma omp atomic
+             const float pC = cur_pressure_prev[b][0][k][j][i];
+#pragma omp atomic           
+             float p1 = cur_pressure_prev[b][0][k][j][i-1];
+#pragma omp atomic
+             float p2 = cur_pressure_prev[b][0][k][j][i+1];
+#pragma omp atomic
+             float p3 = cur_pressure_prev[b][0][k][j-1][i];
+#pragma omp atomic
+             float p4 = cur_pressure_prev[b][0][k][j+1][i];
+#pragma omp atomic
+             float p5 = flags.is_3d() ? cur_pressure_prev[b][0][k-1][j][i] : 0;
+#pragma omp atomic
+             float p6 = flags.is_3d() ? cur_pressure_prev[b][0][k+1][j][i] : 0;
              if (flags.isObstacle(i - 1, j, k, b)) {
                p1 = pC;
              }
@@ -111,10 +141,11 @@ float solveLinearSystemJacobi
                p6 = pC;
              }
            
-             const T denom = flags.is_3d() ? infer_type(tensor_p).scalarTensor(6) 
-                       : infer_type(tensor_p).scalarTensor(4);
-             const T v = (p1 + p2 + p3 + p4 + p5 + p6 + divergence) / denom;
-             (*cur_pressure)(i, j, k, b) = v;
+             const float denom = flags.is_3d() ? 6 : 4;
+#pragma omp atomic
+             const float v = (p1 + p2 + p3 + p4 + p5 + p6 + divergence) / denom;
+#pragma omp atomic
+             cur_pressure[b][0][k][j][i] = v;
 
           } 
         } 
@@ -132,7 +163,7 @@ float solveLinearSystemJacobi
     tensor_p_delta.resize_({nbatch, 1, zsize, ysize, xsize});
     residual = tensor_p_delta_norm.max();
     if (verbose) {
-      std::cout << "Jacobi iteration " << (iter + 1) << ":residual "
+      std::cout << "Jacobi iteration " << (iter + 1) << ": residual "
                 << residual << std::endl;
     }
 
@@ -154,16 +185,16 @@ float solveLinearSystemJacobi
     }
  
     // We haven't yet terminated.
-    RealGrid* tmp = cur_pressure;
+    auto tmp = cur_pressure;
     cur_pressure = cur_pressure_prev;
     cur_pressure_prev = tmp;
   } // end while
 
   // If we terminated with the cur_pressure pointing to the tmp array, then we
   // have to copy the pressure back into the output tensor.
-  if (cur_pressure == &pressure_prev) {
-    tensor_p.copy_(tensor_p_prev);  // p = p_prev
-  }
+  //if (cur_pressure == &pressure_prev) {
+  //  tensor_p.copy_(tensor_p_prev);  // p = p_prev
+  //}
 
   // TODO: write mean-subtraction (FluidNet does it in Lua)
   return at::Scalar(residual).toFloat();

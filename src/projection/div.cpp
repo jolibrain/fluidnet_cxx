@@ -6,6 +6,13 @@ namespace fluid {
 // velocityDivergenceForward
 // *****************************************************************************
 
+// Calculate the velocity divergence (with boundary cond modifications). This is
+// essentially a replica of makeRhs in Manta and FluidNet.
+// 
+// input U - input vel field (size(2) can be 2 or 3, indicating 2D / 3D)
+// input flags - input occupancy grid
+// input UDiv - output divergence (scalar field). 
+
 void velocityDivergenceForward
 (
     T& tensor_u,
@@ -28,7 +35,7 @@ void velocityDivergenceForward
   }
   AT_ASSERT((tensor_u.size(0) == bsz && tensor_u.size(2) == d &&
              tensor_u.size(3) == h && tensor_u.size(4) == w), "Size mismatch");
-  AT_ASSERT(tensor_flags.dim() == tensor_u_div.dim(), "Size mismatch");
+  AT_ASSERT(tensor_u_div.is_same_size(tensor_flags), "Size mismatch");
 
   AT_ASSERT(tensor_u.is_contiguous() && tensor_flags.is_contiguous() &&
             tensor_u_div.is_contiguous(), "Input is not contiguous");

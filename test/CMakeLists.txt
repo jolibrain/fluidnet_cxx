@@ -1,4 +1,4 @@
-SET (TEST_SOURCES test_grid.cpp)
+SET (TEST_SOURCES test_fluid.cpp)
 
 MESSAGE(INFO ${CMAKE_CURRENT_SOURCE_DIR})
 

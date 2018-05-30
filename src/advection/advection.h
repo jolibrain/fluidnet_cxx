@@ -88,23 +88,36 @@ T MacCormackClampFluidNet
     int32_t i, int32_t j, int32_t k, int32_t b
 );
 
-// Main routine for scalar advection
+// Advect scalar field 'p' by the input vel field 'u'.
+// 
+// @input dt - timestep (seconds).
+// @input s - input scalar field to advect
+// @input U - input vel field (size(2) can be 2 or 3, indicating 2D / 3D)
+// @input flags - input occupancy grid
+// @input method - OPTIONAL - "eulerFluidNet", "maccormackFluidNet"
+// @input inplace - Perform inplace advection or return sDst
+// @input sDst - If inplace is false this will be the returned scalar field. Otherwise advection will be performed in-place.
+// @param sampleOutsideFluid - OPTIONAL - For density advection we do not want
+// to advect values inside non-fluid cells and so this should be set to false.
+// For other quantities (like temperature), this should be true.
+// @param maccormackStrength - OPTIONAL - (default 0.75) A strength parameter
+// will make the advection eularian (with values interpolating in between). A
+// value of 1 (which implements the update from An Unconditionally Stable
+// MaCormack Method) tends to add too much high-frequency detail
+// @param boundaryWidth - OPTIONAL - boundary width. (default 1)
+
 void advectScalar
 (
     float dt,
     at::Tensor& tensor_flags,
     at::Tensor& tensor_u,
     at::Tensor& tensor_s,
+    const bool inplace, 
     at::Tensor& tensor_s_dst,
-    at::Tensor& tensor_fwd,
-    at::Tensor& tensor_bwd,
-    at::Tensor& tensor_fwd_pos,
-    at::Tensor& tensor_bwd_pos,
-    const bool is_3d,
-    const std::string method_str,
+    const std::string method_str = "maccormackFluidNet",
     const int32_t boundary_width = 1,
     const bool sample_outside_fluid = false,
-    const float maccormack_strength = 1.
+    const float maccormack_strength = 0.75
 );
 
 // ****************************************************************************
@@ -154,18 +167,33 @@ T MacCormackClampMAC(
     float dt,
     int32_t i, int32_t j, int32_t k, int32_t b);
 
+// Advect velocity field 'u' by itself and store in uDst.
+// 
+// @input dt - timestep (seconds).
+// @input U - input vel field (size(2) can be 2 or 3, indicating 2D / 3D)
+// @input flags - input occupancy grid
+// @input method - OPTIONAL - "eulerFluidNet", "maccormackFluidNet" (default)
+// @input inplace - If true, performs advection in place.
+// @input UDst - If inplace is true then this will be the returned
+// velocity field. Otherwise advection will be performed in-place.
+// @input maccormackStrength - OPTIONAL - (default 0.75) A strength parameter
+// will make the advection more 1st order (with values interpolating in
+// between). A value of 1 (which implements the update from "An Unconditionally
+// Stable MaCormack Method") tends to add too much high-frequency detail.
+// @input boundaryWidth - OPTIONAL - boundary width. (default 1)
+
 void advectVel
 (
     float dt,
     T& tensor_flags,
     T& tensor_u,
+    const bool inplace,
     T& tensor_u_dst,
     T& tensor_fwd,
     T& tensor_bwd,
-    const bool is_3d,
-    const std::string method_str,
-    const int32_t boundary_width,
-    const float maccormack_strength
+    const std::string method_str = "maccormackFluidNet",
+    const int32_t boundary_width = 1,
+    const float maccormack_strength = 0.75
 );
 
 } // namespace fluid

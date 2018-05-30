@@ -2,14 +2,9 @@
 
 #include "ATen/ATen.h"
 
-#include "type_test.h"
 #include "load_manta_data.h"
 #include "plot_utils.h"
 #include "fluid.h"
-
-using namespace at;
-using namespace fluid;
-using namespace cv;
 
 void advectFluidNet(){
    for (int dim = 2; dim < 4; dim++){
@@ -39,7 +34,6 @@ void advectFluidNet(){
 
 void createJacobianTestData(at::Tensor& p, at::Tensor& U, at::Tensor& flags,
                              at::Tensor& density) {
-
    auto && Tundef = at::getType(at::Backend::Undefined, at::ScalarType::Undefined);
 
    bool is3D = false;
@@ -78,7 +72,6 @@ void createJacobianTestData(at::Tensor& p, at::Tensor& U, at::Tensor& flags,
 }                         
 
 void testSetWallBcs(int dim, std::string fnInput, std::string fnOutput) {
-   
    std::string fn = std::to_string(dim) + "d_" + fnInput;
    at::Tensor undef1;
    at::Tensor U;
@@ -110,19 +103,16 @@ void testSetWallBcs(int dim, std::string fnInput, std::string fnOutput) {
 
    at::Tensor UOurs = U.clone();
 
-   fluid::setWallBcsForward(flags, UOurs, is3D);
+   fluid::setWallBcsForward(UOurs, flags);
    at::Tensor err = UOurs - UManta;
     
    float err_abs = at::Scalar(at::max(at::abs(err))).toFloat();
    float precision = 1e-6; 
 
-   if (err_abs < precision) {
-      std::cout << "Test " << dim << "d Set Wall BCs Forward: OK!" << std::endl;
-   }
-   else {
-      std::cout << "Test " << dim << "d Set Wall BCs Forward: FAILED (max error is " 
-      << err_abs << ")."  << std::endl;
-   }
+   std::string ss = "Test " + std::to_string(dim) + "d " + 
+     fnOutput + ": FAILED (max error is " + std::to_string(err_abs) + ").";
+   const char *css = ss.c_str();
+   AT_ASSERT(err_abs < precision, css);
 
 }
 
@@ -131,8 +121,8 @@ void setWallBcs() {
     testSetWallBcs(dim, "advect.bin", "setWallBcs1.bin");
     testSetWallBcs(dim, "vorticityConfinement.bin", "setWallBcs2.bin");
     testSetWallBcs(dim, "solvePressure.bin", "setWallBcs3.bin");
-
-  }  
+  }
+   std::cout << "Set Wall Bcs ----------------------- [PASS]" << std::endl;
 }
 
 void velocityDivergence() {
@@ -161,21 +151,24 @@ void velocityDivergence() {
       at::Tensor divOurs = at::zeros_like(flagsManta);
       at::Tensor u_copy = U.clone();
       at::Tensor flags_copy = flags.clone();
+
       fluid::velocityDivergenceForward(u_copy, flags_copy, divOurs);
+
       at::Tensor err = divManta - divOurs;
 
       float err_abs = at::Scalar(at::max(at::abs(err))).toFloat();
       float precision = 1e-6;
 
-      if (err_abs < precision) {
-         std::cout << "Test " << dim << "d Divergence Forward: OK!" << std::endl;
-      }
-      else {
-         std::cout << "Test " << dim << "d Divergence Forward: FAILED (max error is "
-         << err_abs << ")."  << std::endl;
-      }
+      std::string ss = "Test " + std::to_string(dim) +
+         "d Velocity Divergence: FAILED (max error is " + std::to_string(err_abs)
+         + ").";
+      const char *css = ss.c_str();
+      AT_ASSERT(err_abs < precision, css);
+
       
    }
+   std::cout << "Velocity Divergence ----------------------- [PASS]" << std::endl;
+
 }
 
 void velocityUpdate() {
@@ -203,26 +196,26 @@ void velocityUpdate() {
       
       //Own velocity update calculation.
       at::Tensor UOurs = U.clone(); // This is the divergent U;
-      fluid::velocityUpdateForward(flags, UOurs, pressure, is3D);
+      fluid::velocityUpdateForward(UOurs, flags, pressure);
       
       at::Tensor err = UManta - UOurs;
 
       float err_abs = at::Scalar(at::max(at::abs(err))).toFloat();
       float precision = 1e-6;
 
-      if (err_abs < precision) {
-         std::cout << "Test " << dim << "d Velocity Update Forward: OK!" << std::endl;
-      }
-      else {
-      std::cout << "Test " << dim << "d Velocity Update Forward: FAILED (max error is "
-      << err_abs << ")."  << std::endl;
-      }
+      std::string ss = "Test " + std::to_string(dim) + 
+         "d Velocity Update Forward: FAILED (max error is " + std::to_string(err_abs)
+         + ").";
+      const char *css = ss.c_str();
+      AT_ASSERT(err_abs < precision, css);
       
    }
+   std::cout << "Velocity Update Forward ----------------------- [PASS]" << std::endl;
+
 }
 
 void solveLinearSystemJacobi() {
-   for (int dim = 2; dim < 4; dim++){
+   for (int dim = 2; dim < 3; dim++){
       std::string fn = std::to_string(dim) + "d_setWallBcs2.bin";
       at::Tensor undef1;
       at::Tensor UDiv;
@@ -256,83 +249,89 @@ void solveLinearSystemJacobi() {
       //Note: no need to call setWallBcs as the test data already has had this
       //called.
 
-      //Call the forward function. Note: solveLinearSystemJacobi is only
-      //implemented in CUDA.
+      //Call the forward function. 
       
       at::Tensor p = flags.clone().uniform_(0,1);
       float pTol = 0;
-      int maxIter = 100000; // It has VERY slow convergence. Run for long time.
+      int maxIter = 3000; // It has VERY slow convergence. Run for long time.
       bool verbose = false;
       float residual = fluid::solveLinearSystemJacobi(
-         p, flags, div, 3, pTol, maxIter, verbose);      
-
-      std::string ss = "Jacobi residual " + std::to_string(residual) + "high";
+         p, flags, div, (dim == 3), pTol, maxIter, verbose);      
+      std::string ss = "For " + std::to_string(dim) + "d Jacobi residual (=" + std::to_string(residual) + ") too high";
       const char *css = ss.c_str();
       AT_ASSERT(residual < 1e-4, css);
-
-      p = p.toType(CPU(kFloat));
+      
+      p = p.toType(CPU(at::kFloat));
       float pPrecision = 1e-4;
       if (dim == 3) {
          pPrecision = 1e-3;
       }
+
+      // Now calculate the velocity update using this new pressure and the 
+      // subsequent divergence.
+      at::Tensor UNew = UDiv.clone();
+      fluid::velocityUpdateForward(UNew, flags, p);
+      at::Tensor UDivNew = flags.clone().uniform_(0,1);
+      fluid::velocityDivergenceForward(UNew, flags, UDivNew);
+
+      ss =  "For " + std::to_string(dim) + "d Jacobi divergence error after velocityUpdate";
+      css = ss.c_str();
       
-   }
+      AT_ASSERT(at::Scalar(at::max(at::abs(UDivNew))).toFloat() < 1e-5, css);
+      ss =  "For " + std::to_string(dim) + "d Jacobi velocity error after velocityUpdate";
+      css = ss.c_str();
+      AT_ASSERT(at::Scalar(at::max(at::abs(UNew - UManta))).toFloat() < 1e-4, css);
+  }
+   std::cout << "Solve Linear System Jacobi------------------- [PASS]" << std::endl;
+
 }
+
+float getTrace(at::Tensor& input);
 
 int main(){
 
-auto && Tfloat = CPU(kFloat);
-auto && Tint   = CPU(kInt);
-auto && Tbyte  = CPU(kByte);
-
-int nbatch = 1;
-int bnd    = 1;
-int depth  = 1;
-int height = 6;
-int width  = 5;
-bool is3D = ((depth == 1)? false: true);
-
-Tensor flagsGT = Tfloat.ones({nbatch, 1, depth, height, width});
-Tensor vel =     Tfloat.rand({nbatch, is3D? 3:2, depth, height, width}) * 10;
-Tensor rho =     Tfloat.zeros({nbatch, 1, depth, height, width});
-Tensor rho_dst = Tfloat.zeros({nbatch, 1, depth, height, width});
-Tensor fwd =     Tfloat.zeros({nbatch, 1, depth, height, width});
-Tensor bwd =     Tfloat.zeros({nbatch, 1, depth, height, width});
-Tensor fwd_pos = Tfloat.zeros({nbatch, is3D? 3:2, depth, height, width});
-Tensor bwd_pos = Tfloat.zeros({nbatch, is3D? 3:2, depth, height, width});
-
-Tensor fwd_u =   Tfloat.zeros({nbatch, is3D? 3:2, depth, height, width});
-Tensor bwd_u =   Tfloat.zeros({nbatch, is3D? 3:2, depth, height, width});
-Tensor vel_dst = Tfloat.zeros({nbatch, is3D? 3:2, depth, height, width});
-
-Tensor p =            Tfloat.zeros({nbatch, 1, depth, height, width});     
-Tensor div =          Tfloat.zeros({nbatch, 1, depth, height, width});
-Tensor div_test =     Tfloat.zeros({nbatch, 1, depth, height, width});
-Tensor p_prev =       Tfloat.rand({nbatch, 1, depth, height, width});
-Tensor p_delta =      Tfloat.zeros({nbatch, 1, depth, height, width});
-Tensor p_delta_norm = Tfloat.zeros({nbatch, 1, depth, height, width});
-
-//vel.select(1,0) = 1;
-//vel.select(1,2) = 0;
-
-flagsGT.select(3, 0) = 2;
-flagsGT.select(3, height-1) = 2;
-flagsGT.select(4,0) = 2;
-flagsGT.select(4, width-1) = 2;
+//auto && Tfloat = CPU(kFloat);
+//auto && Tint   = CPU(kInt);
+//auto && Tbyte  = CPU(kByte);
 //
-//flagsGT[0][0][0][2][3] = TypeObstacle;
-
-//vel.select(1,0) = 1;
-//vel.select(1,1) = 1;
-//vel.select(4,0) = 0;
-//vel.select(4, width-1) = 0;
-//vel.select(3, 0) = 0;
-//vel.select(3, height-1) = 0;
-//std::cout << "Flag grid: " << std::endl;
-//std::cout << flagsGT << std::endl;
-//std::cout << "\n";
-
-FlagGrid flag(flagsGT, is3D);
+//int nbatch = 1;
+//int bnd    = 1;
+//int depth  = 1;
+//int height = 6;
+//int width  = 5;
+//bool is3D = ((depth == 1)? false: true);
+//
+//Tensor flagsGT = Tfloat.ones({nbatch, 1, depth, height, width});
+//Tensor vel =     Tfloat.rand({nbatch, is3D? 3:2, depth, height, width}) * 10;
+//Tensor rho =     Tfloat.zeros({nbatch, 1, depth, height, width});
+//Tensor rho_dst = Tfloat.zeros({nbatch, 1, depth, height, width});
+//Tensor vel_dst = Tfloat.zeros({nbatch, is3D? 3:2, depth, height, width});
+//
+//Tensor p =            Tfloat.zeros({nbatch, 1, depth, height, width});     
+//Tensor div =          Tfloat.zeros({nbatch, 1, depth, height, width});
+//Tensor div_test =     Tfloat.zeros({nbatch, 1, depth, height, width});
+//
+////vel.select(1,0) = 1;
+////vel.select(1,2) = 0;
+//
+//flagsGT.select(3, 0) = 2;
+//flagsGT.select(3, height-1) = 2;
+//flagsGT.select(4,0) = 2;
+//flagsGT.select(4, width-1) = 2;
+////
+////flagsGT[0][0][0][2][3] = TypeObstacle;
+//
+////vel.select(1,0) = 1;
+////vel.select(1,1) = 1;
+////vel.select(4,0) = 0;
+////vel.select(4, width-1) = 0;
+////vel.select(3, 0) = 0;
+////vel.select(3, height-1) = 0;
+////std::cout << "Flag grid: " << std::endl;
+////std::cout << flagsGT << std::endl;
+////std::cout << "\n";
+//
+//FlagGrid flag(flagsGT, is3D);
 
 //vel *= 2.14;
 //std::cout << "Vel before: " << std::endl;
@@ -425,64 +424,21 @@ setWallBcs();
 velocityDivergence();
 velocityUpdate();
 solveLinearSystemJacobi();
-/*int dim = 2;
-std::string fn = std::to_string(dim) + "d_vorticityConfinement.bin";
-//      at::Tensor undef1;
-//      at::Tensor U;
-//      at::Tensor flags;
-//      loadMantaBatch(fn, undef1, U, flags, undef1, is3D);
-//      assertNotAllEqual(U);
-//      assertNotAllEqual(flags);
-//
-//      AT_ASSERT(is3D == (dim == 3), "Failed assert is3D");
-      at::Tensor undef1;
-      at::Tensor UOurs;
-      at::Tensor flagsOurs;
- std::string name = "../test_data/b9_2d_vorticityConfinement.bin";
-     loadMantaFile(name, undef1, UOurs, flagsOurs, undef1, is3D);
 
-     at::Tensor undef2;
-     at::Tensor divManta;
-     at::Tensor UManta;
-     at::Tensor flagsManta;
-     name = "../test_data/b9_2d_makeRhs.bin";
-     is3D = false;
-     //loadMantaFile(
-     loadMantaFile(name, divManta, UManta, flagsManta, undef2, is3D);
+//at::Tensor foo = CUDA(at::kFloat).rand({10000,10000});
+//float trace = getTrace(foo);
+//std::cout << trace << std::endl;
+}
 
-     at::Tensor divOurs = CPU(kFloat).zeros_like(divManta);  
-   
-     fluid::velocityDivergenceForward(UOurs, flagsOurs, divOurs);
+float getTrace(at::Tensor& input) {
+  float trace = 0;
+  //at::TensorAccessor<float, 2ul>
+  auto  foo_a = input.accessor<float,2>();
 
-//     at::Tensor undef2;
-//     at::Tensor divManta;
-//     at::Tensor UManta;
-//     at::Tensor flagsManta;
-//     name = "../test_data/b9_2d_makeRhs.bin";
-//     is3D = false;
-//     //loadMantaFile(
-//     loadMantaFile(name, divManta, UManta, flagsManta, undef2, is3D);
+  for(int i = 0; i < foo_a.size(0); i++) {
+    // use the accessor foo_a to get tensor data.
+    trace += foo_a[i][i];
+  }
 
-     std::cout << "div Manta : " << std::endl;
-     std::cout << divManta << std::endl;
-     std::cout << "div Ours : " << std::endl;
-     std::cout << divOurs << std::endl;
-
-     at::Tensor err = divManta - divOurs;
-     std::cout << err << std::endl;
-    // std::cout << "Clone : " << std::endl;
-    // std::cout << divManta << std::endl;    
-//      float err_abs = at::Scalar(at::max(at::abs(err))).toFloat();
-//      float precision = 1e-6;
-//
-//      if (err_abs < precision) {
-//         std::cout << "Test " << dim << "d Divergence Forward: OK!" << std::endl;
-//      }
-//      else {
-//      std::cout << "Test " << dim << "d Divergence Forward: FAILED (max error is "
-//      << err_abs << ")."  << std::endl;
-//      std::cout << err << std::endl;
-//      }
-
-*/
+  return trace;
 }
