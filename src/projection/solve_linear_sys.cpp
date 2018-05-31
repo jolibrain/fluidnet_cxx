@@ -104,23 +104,15 @@ float solveLinearSystemJacobi
            
              // Otherwise in a fluid or empty cell.
              // TODO(tompson): Is the logic here correct? Should empty cells be non-zero?
-#pragma omp atomic
              const float divergence = div_a[b][0][k][j][i];
            
              // Get all the neighbors
-#pragma omp atomic
              const float pC = cur_pressure_prev[b][0][k][j][i];
-#pragma omp atomic           
              float p1 = cur_pressure_prev[b][0][k][j][i-1];
-#pragma omp atomic
              float p2 = cur_pressure_prev[b][0][k][j][i+1];
-#pragma omp atomic
              float p3 = cur_pressure_prev[b][0][k][j-1][i];
-#pragma omp atomic
              float p4 = cur_pressure_prev[b][0][k][j+1][i];
-#pragma omp atomic
              float p5 = flags.is_3d() ? cur_pressure_prev[b][0][k-1][j][i] : 0;
-#pragma omp atomic
              float p6 = flags.is_3d() ? cur_pressure_prev[b][0][k+1][j][i] : 0;
              if (flags.isObstacle(i - 1, j, k, b)) {
                p1 = pC;
@@ -142,9 +134,7 @@ float solveLinearSystemJacobi
              }
            
              const float denom = flags.is_3d() ? 6 : 4;
-#pragma omp atomic
              const float v = (p1 + p2 + p3 + p4 + p5 + p6 + divergence) / denom;
-#pragma omp atomic
              cur_pressure[b][0][k][j][i] = v;
 
           } 

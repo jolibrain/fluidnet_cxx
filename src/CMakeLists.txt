@@ -10,17 +10,21 @@ SET(ADVECTION
 SET(BCS
      boundaryCondition/bcs.cpp
    )
+SET(STERMS
+     sourceTerms/source_term.cpp
+   )
 SET(PROJECTION
      projection/div.cpp
      projection/solve_linear_sys.cpp
      projection/update_vel.cpp
    )
-ADD_LIBRARY(FluidNet SHARED ${GRID} ${ADVECTION} ${BCS} ${PROJECTION})
+ADD_LIBRARY(FluidNet SHARED ${GRID} ${ADVECTION} ${BCS} ${STERMS} ${PROJECTION})
 TARGET_INCLUDE_DIRECTORIES(FluidNet
    PUBLIC
        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/grid;
        ${CMAKE_CURRENT_SOURCE_DIR}/advection;
        ${CMAKE_CURRENT_SOURCE_DIR}/boundaryCondition;
+       ${CMAKE_CURRENT_SOURCE_DIR}/sourceTerms;
        ${CMAKE_CURRENT_SOURCE_DIR}/projection;
        ${CMAKE_CURRENT_SOURCE_DIR}>
 )

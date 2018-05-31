@@ -126,7 +126,7 @@ std::vector<std::string> globVector(const std::string& pattern){
     if(rtrn_val != 0) {
        globfree(&glob_result);
        std::string ss;
-       ss = "glob() failed with return value " + std::to_string(rtrn_val) + ". Check the file name";
+       ss = "glob() failed with return value " + std::to_string(rtrn_val) + ". Check the file name " + pattern + ".";
        const char *css = ss.c_str();
        AT_ERROR(css);
     }

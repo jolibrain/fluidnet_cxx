@@ -1,4 +1,5 @@
 #include <sstream>
+#include <omp.h>
 
 #include "ATen/ATen.h"
 
@@ -119,7 +120,7 @@ void testSetWallBcs(int dim, std::string fnInput, std::string fnOutput) {
 void setWallBcs() {
   for (int dim = 2; dim < 4; dim++){
     testSetWallBcs(dim, "advect.bin", "setWallBcs1.bin");
-    testSetWallBcs(dim, "vorticityConfinement.bin", "setWallBcs2.bin");
+    testSetWallBcs(dim, "gravity.bin", "setWallBcs2.bin");
     testSetWallBcs(dim, "solvePressure.bin", "setWallBcs3.bin");
   }
    std::cout << "Set Wall Bcs ----------------------- [PASS]" << std::endl;
@@ -127,7 +128,7 @@ void setWallBcs() {
 
 void velocityDivergence() {
    for (int dim = 2; dim < 4; dim++){
-      std::string fn = std::to_string(dim) + "d_vorticityConfinement.bin";
+      std::string fn = std::to_string(dim) + "d_gravity.bin";
       at::Tensor undef1;
       at::Tensor U;
       at::Tensor flags;
@@ -173,7 +174,7 @@ void velocityDivergence() {
 
 void velocityUpdate() {
    for (int dim = 2; dim < 4; dim++){
-      std::string fn = std::to_string(dim) + "d_setWallBcs2.bin";
+      std::string fn = std::to_string(dim) + "d_gravity.bin";
       at::Tensor undef1;
       at::Tensor U;
       at::Tensor flags;
@@ -212,6 +213,108 @@ void velocityUpdate() {
    }
    std::cout << "Velocity Update Forward ----------------------- [PASS]" << std::endl;
 
+}
+at::Tensor getGravity(int dim, at::Tensor& flags) {
+   fluid::FlagGrid flag(flags, (dim == 3));
+   float gStrength = flag.getDx() / 4;
+   at::Tensor gravity = CPU(at::kFloat).arange(1,4);
+   if (dim == 2) {
+      gravity[2] = 0;
+   }
+   gravity.div_(gravity.norm()).mul_(gStrength);
+   return gravity;
+}
+
+void addBuoyancy() {
+   for (int dim = 2; dim < 4; dim++) {
+      // Load the input Manta data
+      std::string fn = std::to_string(dim) + "d_setWallBcs1.bin";
+      at::Tensor undef1;
+      at::Tensor U;
+      at::Tensor flags;
+      at::Tensor density;
+      bool is3D;
+      loadMantaBatch(fn, undef1, U, flags, density, is3D);
+      assertNotAllEqual(U);
+      assertNotAllEqual(flags);
+      assertNotAllEqual(density);
+      AT_ASSERT(is3D == (dim == 3), "3D boolean is inconsistent");
+      
+      // Now load the output Manta data.
+      fn = std::to_string(dim) + "d_buoyancy.bin";
+      at::Tensor undef2;
+      at::Tensor UManta;
+      at::Tensor flagsManta;
+      loadMantaBatch(fn, undef2, UManta, flagsManta, undef2, is3D);
+      assertNotAllEqual(UManta);
+      assertNotAllEqual(flagsManta);
+      AT_ASSERT(is3D == (dim == 3), "3D boolean is inconsistent");
+      AT_ASSERT(flags.equal(flagsManta) , "flags changed!");
+
+      AT_ASSERT(at::Scalar(at::max(at::abs(U - UManta))).toFloat() > 1e-5,
+                "No velocities changed in Manta!");
+ 
+      // Use own addBuoyancy
+      at::Tensor UOurs = U.clone();
+      at::Tensor gravity = getGravity(dim, flags);
+      float dt = 0.1;
+      fluid::addBuoyancy(UOurs, flags, density, gravity, dt);
+      at::Tensor err = UManta - UOurs;
+      float err_abs = at::Scalar(at::max(at::abs(err))).toFloat();
+      float precision = 1e-6;
+
+      std::string ss = "Test " + std::to_string(dim) +
+         "d addBuoyancy: FAILED (max error is " + std::to_string(err_abs)
+         + ").";
+      const char *css = ss.c_str();
+      AT_ASSERT(err_abs < precision, css);
+   }
+   std::cout << "Add Buoyancy:------------------[PASS]" << std::endl;
+}
+
+void addGravity() {
+   for (int dim = 2; dim < 4; dim++) {
+      // Load the input Manta data
+      std::string fn = std::to_string(dim) + "d_vorticityConfinement.bin";
+      at::Tensor undef1;
+      at::Tensor U;
+      at::Tensor flags;
+      bool is3D;
+      loadMantaBatch(fn, undef1, U, flags, undef1, is3D);
+      assertNotAllEqual(U);
+      assertNotAllEqual(flags);
+      AT_ASSERT(is3D == (dim == 3), "3D boolean is inconsistent");
+      
+      // Now load the output Manta data.
+      fn = std::to_string(dim) + "d_gravity.bin";
+      at::Tensor undef2;
+      at::Tensor UManta;
+      at::Tensor flagsManta;
+      loadMantaBatch(fn, undef2, UManta, flagsManta, undef2, is3D);
+      assertNotAllEqual(UManta);
+      assertNotAllEqual(flagsManta);
+      AT_ASSERT(is3D == (dim == 3), "3D boolean is inconsistent");
+      AT_ASSERT(flags.equal(flagsManta) , "flags changed!");
+
+      AT_ASSERT(at::Scalar(at::max(at::abs(U - UManta))).toFloat() > 1e-5,
+                "No velocities changed in Manta!");
+ 
+      // Use own addBuoyancy
+      at::Tensor UOurs = U.clone();
+      at::Tensor gravity = getGravity(dim, flags);
+      float dt = 0.1;
+      fluid::addGravity(UOurs, flags, gravity, dt);
+      at::Tensor err = UManta - UOurs;
+      float err_abs = at::Scalar(at::max(at::abs(err))).toFloat();
+      float precision = 1e-6;
+
+      std::string ss = "Test " + std::to_string(dim) +
+         "d addGravity: FAILED (max error is " + std::to_string(err_abs)
+         + ").";
+      const char *css = ss.c_str();
+      AT_ASSERT(err_abs < precision, css);
+   }
+   std::cout << "Add Gravity:------------------[PASS]" << std::endl;
 }
 
 void solveLinearSystemJacobi() {
@@ -285,8 +388,6 @@ void solveLinearSystemJacobi() {
    std::cout << "Solve Linear System Jacobi------------------- [PASS]" << std::endl;
 
 }
-
-float getTrace(at::Tensor& input);
 
 int main(){
 
@@ -419,26 +520,23 @@ int main(){
 //plotTensor2D(U_read.select(1,1), 516, 517);
 //plotTensor2D(density_read, 517, 517, "density");
 //plotTensor2D(density_read.select(1,0), 516, 516);
+//#pragma omp for
+//for(int n=0; n<10; ++n)
+//{
+//   int this_thread = omp_get_thread_num();
+//   //int num_threads = omp_get_threads();
+//   std::string ss = "Thread " + std::to_string(this_thread) + "%d"; 
+//          // + " out of " + std::to_string(num_threads);
+//   const char* css = ss.c_str();
+//   printf(css, n);
+//   printf(" %d", n);
+//}
+//printf(".\n");
 
 setWallBcs();
 velocityDivergence();
 velocityUpdate();
-solveLinearSystemJacobi();
-
-//at::Tensor foo = CUDA(at::kFloat).rand({10000,10000});
-//float trace = getTrace(foo);
-//std::cout << trace << std::endl;
-}
-
-float getTrace(at::Tensor& input) {
-  float trace = 0;
-  //at::TensorAccessor<float, 2ul>
-  auto  foo_a = input.accessor<float,2>();
-
-  for(int i = 0; i < foo_a.size(0); i++) {
-    // use the accessor foo_a to get tensor data.
-    trace += foo_a[i][i];
-  }
-
-  return trace;
+//solveLinearSystemJacobi();
+addBuoyancy();
+addGravity();
 }
