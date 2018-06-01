@@ -1,6 +1,4 @@
-SET (TEST_SOURCES test_fluid.cpp)
-
-MESSAGE(INFO ${CMAKE_CURRENT_SOURCE_DIR})
+SET(TEST_SOURCES test_fluid.cpp)
 
 ADD_EXECUTABLE(unit_tests ${TEST_SOURCES})
 

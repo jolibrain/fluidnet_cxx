@@ -536,7 +536,7 @@ int main(){
 setWallBcs();
 velocityDivergence();
 velocityUpdate();
-//solveLinearSystemJacobi();
+solveLinearSystemJacobi();
 addBuoyancy();
 addGravity();
 }
