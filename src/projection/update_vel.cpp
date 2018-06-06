@@ -43,6 +43,10 @@ void velocityUpdateForward
   AT_ASSERT(tensor_u.is_contiguous() && tensor_flags.is_contiguous() &&
             tensor_p.is_contiguous(), "Input is not contiguous");
 
+  T flags_test = infer_type(tensor_flags).zeros({bsz, 1, d, h, w});
+  T flags_test_i = flags_test.clone();
+  T flags_test_j = flags_test.clone();
+  T flags_test_k = flags_test.clone();
 
   FlagGrid flags(tensor_flags, is_3d);
   MACGrid vel(tensor_u, is_3d);
@@ -67,15 +71,20 @@ void velocityUpdateForward
           }
 
           if (flags.isFluid(i, j, k, b)) {
+            flags_test[b][0][k][j][i] = 1;
             if (flags.isFluid(i - 1, j, k, b)) {
+              flags_test_i[b][0][k][j][i] = 1;
+              
               vel(i, j, k, 0, b) -= (pressure(i, j, k, b) -
                                      pressure(i - 1, j, k, b));
             }
             if (flags.isFluid(i, j - 1, k, b)) {
+             flags_test_j[b][0][k][j][i] = 1;
               vel(i, j, k, 1, b) -= (pressure(i, j, k, b) -
                                      pressure(i, j - 1, k, b));
             }
             if (is_3d && flags.isFluid(i, j, k - 1, b)) {
+              flags_test_k[b][0][k][j][i] = 1;
               vel(i, j, k, 2, b) -= (pressure(i, j, k, b) -
                                      pressure(i, j, k - 1, b));
             }
@@ -113,6 +122,7 @@ void velocityUpdateForward
       }
     }
   }
+
 }
 
 } // namespace fluid

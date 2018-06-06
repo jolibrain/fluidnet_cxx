@@ -7,6 +7,7 @@
 #include "plot_utils.h"
 #include "fluid.h"
 
+
 void advectFluidNet(){
    for (int dim = 2; dim < 4; dim++){
       // Do advection using the 2 parameters and check against Manta.
@@ -60,7 +61,7 @@ void createJacobianTestData(at::Tensor& p, at::Tensor& U, at::Tensor& flags,
       flags = flags.narrow(2, zStart, zSize).contiguous();
       flags = flags.narrow(0, 0, bsize).contiguous();
       
-      if (!(at::Scalar(at::max(at::abs(flags - TypeFluid))).toFloat() > 0)) {
+      if (!(at::Scalar(at::max(at::abs(flags - fluid::TypeFluid))).toFloat() > 0)) {
         AT_ERROR("All cells are fluid.");
       } 
    }
@@ -86,7 +87,7 @@ void testSetWallBcs(int dim, std::string fnInput, std::string fnOutput) {
    if (!(is3D == (dim == 3))) {
       AT_ERROR("Error with is3D at input");}
 
-   if (!(at::Scalar(at::max(at::abs(flags - TypeFluid))).toFloat() > 0)) {
+   if (!(at::Scalar(at::max(at::abs(flags - fluid::TypeFluid))).toFloat() > 0)) {
       AT_ERROR("All cells are fluid at input.");
    }
 
@@ -533,10 +534,10 @@ int main(){
 //}
 //printf(".\n");
 
-setWallBcs();
+//setWallBcs();
 velocityDivergence();
 velocityUpdate();
-solveLinearSystemJacobi();
-addBuoyancy();
-addGravity();
+//solveLinearSystemJacobi();
+//addBuoyancy();
+//addGravity();
 }

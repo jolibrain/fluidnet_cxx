@@ -1,21 +1,28 @@
 #include <cmath>
 #include <vector>
+#include <sstream>
+#include <omp.h>
+
+#include "../test/load_manta_data.h"
+#include "../test/plot_utils.h"
 
 #include "ATen/ATen.h"
 
 #include "fluid.h"
 
-template <typename TBase>
-void createPlumeBCs(std::vector<TBase>& batch, float densityVal, float uScale,
+void createPlumeBCs(std::vector<at::Tensor>& batch, float densityVal, float uScale,
              float rad) {
   // batch at input = {p, UDiv, flags, density} 
-  TBase* UDiv = batch[1];
-  TBase* density = batch[3];
-  TBase UBC = (UDiv->clone()).fill_(0);
-  TBase UBCInvMask = (UDiv->clone()).fill_(1);
-  
-  TBase densityBC = (density->clone()).fill_(0);
-  TBase densityBCInvMask = (density->clone()).fill_(1);
+
+  AT_ASSERT(batch.size() == 4, "Batch must have size 4");
+  at::Tensor UDiv = batch[1];
+  at::Tensor density = batch[3];
+  at::Tensor UBC = UDiv.clone().fill_(0);
+  at::Tensor UBCInvMask = UDiv.clone().fill_(1);
+
+  // Single density value  
+  at::Tensor densityBC = density.clone().fill_(0);
+  at::Tensor densityBCInvMask = density.clone().fill_(1);
 
   AT_ASSERT(UBC.dim() == 5, "UBC must have dim = 5");
   AT_ASSERT(UBC.size(0) == 1, "Only single batch alllowed.");
@@ -27,11 +34,12 @@ void createPlumeBCs(std::vector<TBase>& batch, float densityVal, float uScale,
   if (!is3D) {
     AT_ASSERT(zdim == 1, "For 2D, zdim must be 1");
   } 
-  float centerX = 0;//std::floor(xdim / 2); 
-  float centerZ = 0;//std::max(std::floor(zdim / 2), 1); 
-  float plumeRad = 1;//std::floor(xdim * rad);
+  float centerX = std::floor( (float) xdim / 2); 
+  float centerZ = std::max(std::floor( (float) zdim / 2), (float) 1); 
+  float plumeRad = std::floor( (float) xdim * (float) rad);
+
   float y = 1;
-  TBase vec;
+  at::Tensor vec;
   if (!is3D) {
     vec = infer_type(UBC).arange(0,2);
   }
@@ -40,138 +48,375 @@ void createPlumeBCs(std::vector<TBase>& batch, float densityVal, float uScale,
     vec[2] = 0;
   }
   vec.mul_(uScale);
-  for (int z=0; z < zdim; z++) {
-    for (int y=0; y < 4; y++) {
-      for (int x=0; x < xdim; x++) {
-        float dx = centerX - x;
-        float dz = centerZ - z;
-        if ((dx*dx + dz*dz) <= plumeRad*plumeRad) {
-          // Inside the plume. Set the BCs.
-          //UBC.select(1,0)[z][y][x].f
-        }
-      }
-    }
-  }
- 
-  batch.insert(batch.end(), std::move(UBC));
-  batch.insert(batch.end(), std::move(UBCInvMask));
 
-}
-
-namespace fluid {
-void emptyDomain(at::Tensor& tensor_flags, unsigned int bnd = 1) {
-  AT_ASSERT(bnd != 0, "bnd must be non zero!");
-  AT_ASSERT(tensor_flags.dim() == 5, "Flags should be 5D");
-  AT_ASSERT(tensor_flags.size(1) == 1, "Flags should be a scalar");
-
-  const bool is_3d = (tensor_flags.size(2) != 1);
-
-  AT_ASSERT(((!is_3d || tensor_flags.size(2) > bnd * 2) &&
-             tensor_flags.size(3) > bnd * 2 || tensor_flags.size(4) > bnd * 2),
-             "Simulation domain is not big enough");
-
-  const int32_t xsize  = tensor_flags.size(4);
-  const int32_t ysize  = tensor_flags.size(3);
-  const int32_t zsize  = tensor_flags.size(2);
-  const int32_t nbatch = tensor_flags.size(0);
-
-  //tensor_flags.select(1,0) = TypeFluid;
-  for (int b_it = 0; b_it < bnd; b_it++){
-    if (is_3d) {
-      tensor_flags.select(2,b_it)         = TypeObstacle;
-      tensor_flags.select(2,xsize-1-b_it) = TypeObstacle;
-    }
-    tensor_flags.select(3, b_it)         = TypeObstacle;
-    tensor_flags.select(3, ysize-1-b_it) = TypeObstacle;
-    tensor_flags.select(4, b_it)         = TypeObstacle;
-    tensor_flags.select(4, xsize-1-b_it) = TypeObstacle;
-  }
-
-//  fluid::FlagGrid flags(tensor_flags, is_3d);
-//
-//  const int32_t xsize = flags.xsize();
-//  const int32_t ysize = flags.ysize();
-//  const int32_t zsize = flags.zsize();
-//  const int32_t nbatch  = flags.nbatch();
-//  for (int32_t b = 0; b < nbatch; b++) {
-//    int32_t k, j, i;
-//#pragma omp parallel for collapse(3) private(k, j, i)
-//    for (k = 0; k < zsize; k++) {
-//      for (j = 0; j < ysize; j++) {
-//        for (i = 0; i < xsize; i++) {
-//          if (i < bnd || i > xsize - 1 - bnd ||
-//              j < bnd || j > ysize - 1 - bnd ||
-//              (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
-//            flags(i, j, k, b) = TypeObstacle;
-//          } else {
-//            flags(i, j, k, b) = TypeFluid;
-//          }
-//        }
-//      }
-//    }
-//  }
-
-} 
-} // namespace fluid
-
-int main() {
-
-  auto && Tfloat = CPU(at::kFloat);
-
-  int res = 10;
-  int batchSize = 1;
-
-  at::Tensor pDiv    = Tfloat.zeros({batchSize, 1, 1, res, res});     
-  at::Tensor UDiv    = Tfloat.zeros({batchSize, 2, 1, res, res});
-  at::Tensor flags   = Tfloat.zeros({batchSize, 1, 1, res, res});
-  at::Tensor density = Tfloat.zeros({batchSize, 1, 1, res, res});
- 
-  fluid::emptyDomain(flags, 3); 
-
-
-  at::Tensor y = Tfloat.rand({6,16,10});
-  bool is3D = (y.size(0) > 1);
-
-  at::Tensor rhs = Tfloat.rand_like(y);
-  int d = y.size(0);
-  int w = y.size(1);
-  int h = y.size(2);
-
-  std::cout << y << std::endl;
-
-  at::Tensor index_x = CPU(at::kLong).arange(0, h).view({h}).expand_as(y);
-  at::Tensor index_y = CPU(at::kLong).arange(0, w).view({w, 1}).expand_as(y);
+  at::Tensor index_x = infer_type(UDiv).arange(0, xdim).view({xdim}).expand_as(density[0][0]);
+  at::Tensor index_y = infer_type(UDiv).arange(0, ydim).view({ydim, 1}).expand_as(density[0][0]);
   at::Tensor index_z;
   if (is3D) {
-     index_z = CPU(at::kLong).arange(0, d).view({d, 1 , 1}).expand_as(y);
+     index_z = CPU(at::kFloat).arange(0, zdim).view({zdim, 1 , 1}).expand_as(density[0][0]);
   }
-  //std::cout << index_x << std::endl;
-  //std::cout << index_y << std::endl;
-  //std::cout << index_z << std::endl;
-  //at::Tensor index_ten = index_x.expand_as(y);
-  //at::Tensor index_ten = CPU(at::kInt).arange(1,h * w + 1).view({h, w});
   at::Tensor index_ten;
-  
+
   if (!is3D) {
     index_ten = at::stack({index_x, index_y}, 0);
   }
   else { 
     index_ten = at::stack({index_x, index_y, index_z}, 0);
   }
-  int bnd_n = 1;
+ 
+  //TODO 3d implementation
+  at::Tensor indx_circle = index_ten.narrow(2, 0, 4);
+  indx_circle.select(0,0) -= centerX;
+  at::Tensor maskInside = (indx_circle.select(0,0).pow(2) <= plumeRad*plumeRad);
 
-  at::Tensor mask = (index_ten.select(0,0) < bnd_n).__or__(index_ten.select(0,0) > h - 1 - bnd_n)
-                    .__or__(index_ten.select(0,1) < bnd_n).__or__(index_ten.select(0,1) > w - 1 - bnd_n);
-  std::cout << mask << std::endl;
-  if (is3D) {
-      mask = mask.__or__(index_ten.select(0,2) < bnd_n).__or__(index_ten.select(0,2) > d - 1 - bnd_n);
-  } 
+  // Inside the plume. Set the BCs.
+
+  //WHY? it works with [1] but NOT when no [1] is written
+  //UBC.narrow(3,0,4).squeeze(0)[1].masked_scatter_(maskInside.squeeze(0)[1], vec.view({1,2,1,1,1}).expand_as(UBC.narrow(3,0,4)).squeeze(0)[1] );
   
-  rhs.masked_fill_(mask, 0);
-  std::cout << rhs << std::endl;
+  //It is clearer to just multiply by mask (casted into Float)
+  at::Tensor maskInside_f = maskInside.type().toScalarType(density.type().scalarType()).
+                              copy(maskInside);
+  UBC.narrow(3,0,4) = maskInside_f * vec.view({1,2,1,1,1}).expand_as(UBC.narrow(3,0,4));
+  UBCInvMask.narrow(3,0,4).masked_fill_(maskInside, 0);
 
-  //at::Tensor mask = z.ge(0.5);
-  //mask[0] = 1;
+  densityBC.narrow(3,0,4).masked_fill_(maskInside, densityVal);
+  densityBCInvMask.narrow(3,0,4).masked_fill_(maskInside, 0);
+
+  // Outside the plume. Set the velocity to zero and leave density alone.  
+
+  at::Tensor maskOutside = (maskInside == 0);
+  UBC.narrow(3,0,4).masked_fill_(maskOutside, 0);
+  UBCInvMask.narrow(3,0,4).masked_fill_(maskOutside, 0);
+  
+  // Insert the new tensors at the end of the batch. 
+  batch.insert(batch.end(), std::move(UBC));
+  batch.insert(batch.end(), std::move(UBCInvMask));
+
+  batch.insert(batch.end(), std::move(densityBC));
+  batch.insert(batch.end(), std::move(densityBCInvMask));
+
+  // batch at output = {0: p, 1: UDiv, 2: flags, 3: density, 4: UBC,
+  //                       5: UBCInvMask, 6: densityBC, 7: densityBCInvMask} 
+}
+
+void setConstVals(std::vector<at::Tensor>& batch, at::Tensor& p,
+                  at::Tensor& U, at::Tensor& flags, at::Tensor& density) {
+ // apply external BCs.
+ // batch  = {0: p, 1: UDiv, 2: flags, 3: density, 4: UBC,
+ //           5: UBCInvMask, 6: densityBC, 7: densityBCInvMask} 
+
+ // Zero out the U values on the BCs.
+ U.mul_(batch[5]);
+ // Add back the values we want to specify.
+ U.add_(batch[4]);
+
+ density.mul_(batch[7]);
+ density.add_(batch[6]);
+}
+
+namespace fluid {
+
+float getDx(at::Tensor flags) {
+  float gridSizeMax = std::max(std::max(flags.size(2), flags.size(3)), flags.size(4));
+  return (1.0 / gridSizeMax);
+}
+
+void emptyDomain(at::Tensor& flags, int bnd = 1) {
+  AT_ASSERT(bnd != 0, "bnd must be non zero!");
+  AT_ASSERT(flags.dim() == 5, "Flags should be 5D");
+  AT_ASSERT(flags.size(1) == 1, "Flags should be a scalar");
+
+  const bool is3D = (flags.size(2) != 1);
+
+  AT_ASSERT(((!is3D || flags.size(2) > bnd * 2) &&
+             flags.size(3) > bnd * 2 || flags.size(4) > bnd * 2),
+             "Simulation domain is not big enough");
+
+  const int32_t xdim  = flags.size(4);
+  const int32_t ydim  = flags.size(3);
+  const int32_t zdim  = flags.size(2);
+  const int32_t nbatch = flags.size(0);
+
+  at::Tensor index_x = infer_type(flags).arange(0, xdim).view({xdim}).expand_as(flags[0][0]);
+  at::Tensor index_y = infer_type(flags).arange(0, ydim).view({ydim, 1}).expand_as(flags[0][0]);
+  at::Tensor index_z;
+  if (is3D) {
+     index_z = infer_type(flags).arange(0, zdim).view({zdim, 1 , 1}).expand_as(flags[0][0]);
+  }
+  at::Tensor index_ten;
+  if (!is3D) {
+    index_ten = at::stack({index_x, index_y}, 0);
+  }
+  else {
+    index_ten = at::stack({index_x, index_y, index_z}, 0);
+  }
+
+  at::Tensor maskBorder = (index_ten.select(0,0) < bnd).__or__
+                          (index_ten.select(0,0) > xdim - 1 - bnd).__or__
+                          (index_ten.select(0,1) < bnd).__or__
+                          (index_ten.select(0,1) > ydim - 1 - bnd);
+  if (is3D) {
+      maskBorder = maskBorder.__or__(index_ten.select(0,2) < bnd).__or__
+                                    (index_ten.select(0,2) > zdim - 1 - bnd);
+  }
+
+  flags.masked_fill_(maskBorder, fluid::TypeObstacle);
+  flags.masked_fill_((maskBorder == 0), fluid::TypeFluid); 
+}
+
+// Top level simulation loop.
+void simulate(std::vector<at::Tensor>& batch) {
+  
+  float dt = 1;
+  float maccormackStrength = 1; 
+  bool sampleOutsideFluid = false;
+
+  float buoyancyScale = 1.1;
+  float gravityScale = 1.1;
+  
+  // Get p, U, flags and density from batch.
+  at::Tensor p = batch[0];
+  at::Tensor U = batch[1];
+  at::Tensor flags = batch[2];
+  at::Tensor density = batch[3];
+
+  // First advect all scalar fields.
+  at::Tensor density_dst = density.clone();
+  fluid::advectScalar(dt, flags, U, density, true, density_dst, "maccormackFluidNet",
+                      1, sampleOutsideFluid, maccormackStrength);
+  // Self-advect velocity
+  at::Tensor vel_dst = U.clone();
+  fluid::advectVel(dt, flags, U, true, vel_dst, "maccormackFluidNet", 1, maccormackStrength);
+  // Set the manual BCs.
+  setConstVals(batch, p, U, flags, density);
+
+  at::Tensor gravity = infer_type(U).tensor({3}).fill_(0);  
+  gravity[2] = 1;
+
+  // Add external forces: buoyancy.
+  gravity.mul_(-(fluid::getDx(flags) / 4) * buoyancyScale);
+
+  fluid::addBuoyancy(U, flags, density, gravity, dt);
+  
+  // Add external forces: gravity.
+  gravity.mul_((-fluid::getDx(flags) / 4) * gravityScale);
+  fluid::addGravity(U, flags, gravity, dt);
+
+  // Set the constant domain values.
+  fluid::setWallBcsForward(U, flags);
+  setConstVals(batch, p, U, flags, density);
+
+  at::Tensor div = p.clone();
+  fluid::velocityDivergenceForward(U, flags, div);
+
+  bool is3D = (U.size(2) == 3);
+  float residual;
+  float pTol = 0;
+  int maxIter = 34;
+  residual = fluid::solveLinearSystemJacobi(p, flags, div, is3D, pTol, maxIter, false);
+
+  fluid::velocityUpdateForward(U, flags, p);
+  setConstVals(batch, p, U, flags, density);
+}
+
+ 
+} // namespace fluid
+
+int main() {
+
+int res = 64;
+
+at::Tensor p =       CPU(at::kFloat).zeros({1,1,1,res,res});
+at::Tensor U =       CPU(at::kFloat).zeros({1,2,1,res,res});
+at::Tensor flags =   CPU(at::kFloat).zeros({1,1,1,res,res});
+at::Tensor density = CPU(at::kFloat).zeros({1,1,1,res,res});
+
+fluid::emptyDomain(flags);
+std::vector<at::Tensor> batch;
+
+batch.insert(batch.end(), p);
+batch.insert(batch.end(), U);
+batch.insert(batch.end(), flags);
+batch.insert(batch.end(), density);
+
+float densityVal = 1;
+float rad = 0.15;
+float plumeScale = 1.0 * ((float) res/128);
+
+createPlumeBCs(batch, densityVal, plumeScale, rad);
+int maxIter = 1000;
+int it = 0;
+while (it < maxIter) {
+  std::cout << "Iteration " << it << " out of " << maxIter << std::endl;
+  fluid::simulate(batch);
+  std::string name_density = "density_it_" + std::to_string(it);
+  plotTensor2D(batch[3], 500, 500, name_density);
+  it++;
+}
+//  auto && Tfloat = CPU(at::kFloat);
+//
+//  int dim = 2;
+// 
+//      std::string fn = std::to_string(dim) + "d_gravity.bin";
+//      at::Tensor undef1;
+//      at::Tensor U;
+//      at::Tensor flags;
+//      bool is3D;
+//      loadMantaBatch(fn, undef1, U, flags, undef1, is3D);
+//      assertNotAllEqual(U);
+//      assertNotAllEqual(flags);
+//
+//      AT_ASSERT(is3D == (dim == 3), "Failed assert is3D");
+//      fn = std::to_string(dim) + "d_correctVelocity.bin";
+//      at::Tensor undef2;
+//      at::Tensor pressure;
+//      at::Tensor UManta;
+//      at::Tensor flagsManta;
+//      loadMantaBatch(fn, pressure, UManta, flagsManta, undef2, is3D);
+//      AT_ASSERT(is3D == (dim == 3), "Failed assert is3D");
+//
+//      AT_ASSERT(flags.equal(flagsManta), "Flags changed!");
+//      AT_ASSERT(at::Scalar(at::max(at::abs(U - UManta))).toFloat() > 1e-5, "No velocities changed in Manta!");
+//
+//  int b = flags.size(0);
+//  int d = flags.size(2);
+//  int h = flags.size(3);
+//  int w = flags.size(4);
+
+//  at::Tensor index_x = CPU(at::kFloat).arange(0, h).view({h}).expand_as(flags[0][0]);
+//  at::Tensor index_y = CPU(at::kFloat).arange(0, w).view({w, 1}).expand_as(flags[0][0]);
+//  at::Tensor index_z;
+//  if (is3D) {
+//     index_z = CPU(at::kFloat).arange(0, d).view({d, 1 , 1}).expand_as(flags[0][0]);
+//  }
+//  at::Tensor index_ten;
+//
+//  if (!is3D) {
+//    index_ten = at::stack({index_x, index_y}, 0);
+//  }
+//  else { 
+//    index_ten = at::stack({index_x, index_y, index_z}, 0);
+//  }
+//  
+//  int bnd_n = 1;
+//
+//  at::Tensor mask = (index_ten.select(0,0) < bnd_n).__or__(index_ten.select(0,0) > h - 1 - bnd_n)
+//                    .__or__(index_ten.select(0,1) < bnd_n).__or__(index_ten.select(0,1) > w - 1 - bnd_n);
+//  if (is3D) {
+//      mask = mask.__or__(index_ten.select(0,2) < bnd_n).__or__(index_ten.select(0,2) > d - 1 - bnd_n);
+//  } 
+ 
+   
+//  at::Tensor Pijk; 
+//  at::Tensor Pijk_m;
+//  
+//  if (!is3D) {
+//    Pijk = pressure.narrow(4, 1, w-2).narrow(3, 1, h-2);
+//    Pijk = Pijk.clone().expand({b, 2, d, h-2, w-2});
+//    Pijk_m = Pijk.clone().expand({b, 2, d, h-2, w-2});
+//    Pijk_m.select(1,0) = pressure.narrow(4, 0, w-2).narrow(3, 1, h-2).squeeze(1);
+//    Pijk_m.select(1,1) = pressure.narrow(4, 1, w-2).narrow(3, 0, h-2).squeeze(1);
+//  } else {
+//    Pijk = pressure.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2);
+//    Pijk = Pijk.clone().expand({b, 3, d-2, h-2, w-2});
+//    Pijk_m = Pijk.clone().expand({b, 3, d-2, h-2, w-2});
+//    Pijk_m.select(1,0) = pressure.narrow(4, 0, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).squeeze(1);
+//    Pijk_m.select(1,1) = pressure.narrow(4, 1, w-2).narrow(3, 0, h-2).narrow(2, 1, d-2).squeeze(1);
+//    Pijk_m.select(1,2) = pressure.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 0, d-2).squeeze(1);
+//  }
+//    std::cout << Pijk[0][0] << std::endl;
+//    std::cout << Pijk_m[0][1] << std::endl;
+//    std::cout << pressure[0][0] << std::endl;
+//
+//  at::Tensor mask_fluid;
+//  at::Tensor mask_fluid_i;
+//  at::Tensor mask_fluid_j;
+//  at::Tensor mask_fluid_k;
+//
+//  if (!is3D) {
+//    mask_fluid = flags.narrow(4, 1, w-2).narrow(3, 1, h-2).eq(fluid::TypeFluid);
+//    mask_fluid_i = mask_fluid.
+//        __and__(flags.narrow(4, 0, w-2).narrow(3, 1, h-2).eq(fluid::TypeFluid));
+//    mask_fluid_j = mask_fluid.
+//        __and__(flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(fluid::TypeFluid));
+//  } else {
+//    mask_fluid  = flags.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).eq(fluid::TypeFluid);
+//    mask_fluid_i = mask_fluid.
+//        __and__(flags.narrow(4, 0, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).
+//        eq(fluid::TypeFluid));
+//    mask_fluid_j = mask_fluid.
+//        __and__(flags.narrow(4, 1, w-2).narrow(3, 0, h-2).narrow(2, 1, d-2).
+//        eq(fluid::TypeFluid));
+//    mask_fluid_k = mask_fluid.
+//        __and__(flags.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 0, d-2).
+//        eq(fluid::TypeFluid));
+//  }
+//
+//  if (!is3D) { 
+//    U.narrow(4, 1, w-2).narrow(3, 1, h-2).select(1,0).masked_select(mask_fluid_i)
+//        -= (Pijk - Pijk_m).select(1,0).masked_select(mask_fluid_i);
+//    U.narrow(4, 1, w-2).narrow(3, 1, h-2).select(1,1).masked_select(mask_fluid_j)
+//        -= (Pijk - Pijk_m).select(1,1).masked_select(mask_fluid_j);
+//  } else {
+//    U.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).masked_select(mask_fluid_i)
+//        -= (Pijk - Pijk_m).masked_select(mask_fluid_i);
+//    U.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).masked_select(mask_fluid_j)
+//        -= (Pijk - Pijk_m).masked_select(mask_fluid_j);
+//    U.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).masked_select(mask_fluid_k)
+//        -= (Pijk - Pijk_m).masked_select(mask_fluid_k);
+//  }
+//  
+//  at::Tensor err = UManta - U;
+//  float err_abs = at::Scalar(at::max(at::abs(err))).toFloat();
+//  std::cout << mask_fluid_i[0][0] << std::endl;
+
+//
+//  if (is3D) {
+//    div += Uijk.select(1,2) - Uijk_p.select(1,2);
+//  }
+// 
+//  if (!is3D) { 
+//    rhs.narrow(4, 1, h-2).narrow(3, 1, w-2) = div.view({b, 1, d, w-2, h-2});
+//  } else {
+//    rhs.narrow(4, 1, h-2).narrow(3, 1, w-2).narrow(2, 1, d-2) = div.view({b, 1, d-2, w-2, h-2});
+//  }
+//
+//  at::Tensor mask_obst = flags.ne(1);
+//  rhs.masked_fill_(mask_obst, 0);
+//   
+//  at::Tensor err = divManta - rhs;
+//
+//  float err_abs = at::Scalar(at::max(at::abs(err))).toFloat();
+//  std::cout << err_abs << std::endl;
+
+  //float precision = 1e-6;
+
+  //std::string ss = "Test " + std::to_string(dim) +
+  //   "d Velocity Divergence: FAILED (max error is " + std::to_string(err_abs)
+  //   + ").";
+  //const char *css = ss.c_str();
+  //AT_ASSERT(err_abs < precision, css);
+
+ 
+//  at::Tensor mask2 = mask.ne_(1);
+//  //std::cout << rhs << std::endl;
+//  //std::cout << rhs.masked_select(mask2).view({b,1,d,w-2,h-2}) << std::endl;
+//
+//  at::Tensor mask_ijk = CPU(at::kByte).tensor({b,(is3D?3:2),d,w,h});
+//  mask_ijk.select(1,0) =  index_ten.select(0,0).ge(bnd_n);
+//  mask_ijk.select(1,1) =  index_ten.select(0,1).ge(bnd_n);
+//
+//if (is3D) {
+//  std::cout << index_ten.select(0,2).lt(d - 1 - bnd_n) << std::endl;
+//}
+//  //std::cout << mask_ijk << std::endl; 
+//  std::cout << rhs << std::endl;
+  
+
+//
+//  //at::Tensor mask = z.ge(0.5);
+//mask_ijk.select(1,2) =   //mask[0] = 1;
   //at::Tensor mask_y = z.ge(0.1).toType(y.type());
   //std::cout << mask_y << std::endl;
   //std::cout << x << std::endl;
@@ -190,8 +435,5 @@ int main() {
   //std::cout << indices2 << std::endl;  
   //std::cout << z.view({1,2,1,3}) << std::endl;
 
-  at::Tensor densityVal = CPU(at::kFloat).ones({1});
-  float rad = 0.15;
-  
   
 }

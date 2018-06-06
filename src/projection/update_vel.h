@@ -1,6 +1,11 @@
-#include "grid/grid.h"
+#pragma once
+
+#include "ATen/ATen.h"
+#include "grid/cell_type.h"
 
 namespace fluid {
+
+  typedef at::Tensor T;
 
 // *****************************************************************************
 // velocityUpdateForward
@@ -13,13 +18,8 @@ namespace fluid {
 // 
 // input U - vel field (size(2) can be 2 or 3, indicating 2D / 3D)
 // input flags - input occupancy grid
-// input p - scalar pressure field.
+// input pressure - scalar pressure field.
 
-void velocityUpdateForward
-(
-    T& tensor_u,
-    T& tensor_flags,
-    T& tensor_p
-);
+  void velocityUpdateForward(T& U, T& flags, T& pressure);
 
 } // namespace fluid

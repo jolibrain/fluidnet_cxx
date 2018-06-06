@@ -1,8 +1,11 @@
 #pragma once
 
-#include "grid/grid.h"
+#include "ATen/ATen.h"
+#include "grid/cell_type.h"
 
 namespace fluid {
+
+  typedef at::Tensor T;
 
 // *****************************************************************************
 // velocityDivergenceForward
@@ -15,8 +18,6 @@ namespace fluid {
 // input flags - input occupancy grid
 // input UDiv - output divergence (scalar field). 
 
-
-void velocityDivergenceForward(T& tensor_u, T& tensor_flags, 
-       T& tensor_u_div);
+  void velocityDivergenceForward(T& U, T& flags, T& UDiv);
 
 } // namespace fluid

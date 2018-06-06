@@ -14,9 +14,9 @@ SET(STERMS
      sourceTerms/source_term.cpp
    )
 SET(PROJECTION
-     projection/div.cpp
+     projection/div_ten.cpp
      projection/solve_linear_sys.cpp
-     projection/update_vel.cpp
+     projection/update_vel_ten.cpp
    )
 ADD_LIBRARY(FluidNet SHARED ${GRID} ${ADVECTION} ${BCS} ${STERMS} ${PROJECTION})
 TARGET_INCLUDE_DIRECTORIES(FluidNet

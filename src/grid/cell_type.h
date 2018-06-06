@@ -1,5 +1,6 @@
 #pragma once
 
+namespace fluid {
 // These are the same enum values used in Manta. We can't include grid.h
 // from Manta without pulling in the entire library, so we'll just redefine
 // them here.
@@ -15,4 +16,6 @@ enum CellType {
     TypeReserved = 256,
     TypeZeroPressure = (1<<15)
 };
+
+} // namespace fluid
 

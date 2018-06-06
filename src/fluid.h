@@ -1,6 +1,7 @@
 #pragma once
 
 #include "grid/grid.h"
+#include "grid/cell_type.h"
 #include "advection/advection.h"
 #include "boundaryCondition/bcs.h"
 #include "sourceTerms/source_term.h"

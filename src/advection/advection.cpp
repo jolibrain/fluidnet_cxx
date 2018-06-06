@@ -283,7 +283,7 @@ void advectScalar
             tensor_flags.is_contiguous(), "Input is not contiguous");
 
   AT_ASSERT(tensor_s_dst.dim() == 5, "Size mismatch");
-  AT_ASSERT(tensor_s_dst.is_contiguous() == 5, "Size mismatch");
+  AT_ASSERT(tensor_s_dst.is_contiguous(), "Input is not contiguous");
   AT_ASSERT(tensor_s_dst.is_same_size(tensor_s), "Size mismatch");
   
   T tensor_fwd     = infer_type(tensor_flags).zeros({bsz, 1, d, h, w});  
@@ -727,7 +727,7 @@ void advectVel
             "Input is not contiguous");
 
   AT_ASSERT(tensor_u_dst.dim() == 5, "Size mismatch");
-  AT_ASSERT(tensor_u_dst.is_contiguous() == 5, "Size mismatch");
+  AT_ASSERT(tensor_u_dst.is_contiguous(), "Input is not contiguous");
   AT_ASSERT(tensor_u_dst.is_same_size(tensor_u), "Size mismatch");
   
   T tensor_fwd = infer_type(tensor_flags).zeros({bsz, tensor_u.size(1), d, h, w});

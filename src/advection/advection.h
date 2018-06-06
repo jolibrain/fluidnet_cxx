@@ -181,7 +181,6 @@ T MacCormackClampMAC(
 // between). A value of 1 (which implements the update from "An Unconditionally
 // Stable MaCormack Method") tends to add too much high-frequency detail.
 // @input boundaryWidth - OPTIONAL - boundary width. (default 1)
-
 void advectVel
 (
     float dt,
@@ -189,8 +188,6 @@ void advectVel
     T& tensor_u,
     const bool inplace,
     T& tensor_u_dst,
-    T& tensor_fwd,
-    T& tensor_bwd,
     const std::string method_str = "maccormackFluidNet",
     const int32_t boundary_width = 1,
     const float maccormack_strength = 0.75
