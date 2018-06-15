@@ -96,13 +96,13 @@ namespace fluid {
       stf0[0] = 0;
       stf1[0] = 1.;
     }
-    if (toBool(posi[1] >= xsize() -1)) {
-      posi[1] = (int)(xsize() - 2);
+    if (toBool(posi[1] >= ysize() -1)) {
+      posi[1] = (int)(ysize() - 2);
       stf0[1] = 0.;
       stf1[1] = 1.;
     }
-    if (toBool(posi[2] >= xsize() -1)) {
-      posi[2] = (int)(xsize() - 2);
+    if (toBool(posi[2] >= zsize() -1)) {
+      posi[2] = (int)(zsize() - 2);
       stf0[2] = 0.;
       stf1[2] = 1.;
     }

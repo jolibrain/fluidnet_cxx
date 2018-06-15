@@ -9,257 +9,548 @@
 
 typedef at::Tensor T;
 
-T interpol(T& self, T& pos) {
+const float hit_margin = 1e-5;
+const float epsilon = 1e-12;
 
-  AT_ASSERT(pos.size(1) == 3, "Input pos must have 3 channels"); 
 
-  bool is3D = (self.size(2) > 1);
+/*  std::cout << "begin " << std::endl;
+  T temp = CUDA(at::kInt).randint(3,{64,3,129,129,129});
+  T maskTotal = temp.select(1,0).eq(0).__or__(temp.select(1,1).eq(0)).__or__(temp.select(1,2).eq(0));
+
+
+  T mask = temp[0].select(0,0).eq(0).__or__(temp[0].select(0,1).eq(0)).__or__(temp[0].select(0,2).eq(0));
+  T non_zero_mask = mask.nonzero();
+  T out = zeros_like(non_zero_mask);
+
+  out.select(1,0) = non_zero_mask.select(1,0)*temp.stride(2) +
+                    non_zero_mask.select(1,1)*temp.stride(3) +
+                    non_zero_mask.select(1,2)*temp.stride(4) +
+                    0 * temp.stride(1);
+  out.select(1,1) = non_zero_mask.select(1,0)*temp.stride(2) +
+                    non_zero_mask.select(1,1)*temp.stride(3) +
+                    non_zero_mask.select(1,2)*temp.stride(4) +
+                    1 * temp.stride(1);
+  out.select(1,2) = non_zero_mask.select(1,0)*temp.stride(2) +
+                    non_zero_mask.select(1,1)*temp.stride(3) +
+                    non_zero_mask.select(1,2)*temp.stride(4) +
+                    2 * temp.stride(1);
+
+  for (int b=1; b<temp.size(0); b++) {
+     mask = temp[b].select(0,0).eq(0).__or__(temp[b].select(0,1).eq(0)).__or__(temp[b].select(0,2).eq(0));
+     non_zero_mask = mask.nonzero();
+     T out_next = zeros_like(non_zero_mask);
+     out_next.select(1,0) = non_zero_mask.select(1,0)*temp.stride(2) +
+                            non_zero_mask.select(1,1)*temp.stride(3) +
+                            non_zero_mask.select(1,2)*temp.stride(4) +
+                            0 * temp.stride(1) + b*temp.stride(0);
+     out_next.select(1,1) = non_zero_mask.select(1,0)*temp.stride(2) +
+                            non_zero_mask.select(1,1)*temp.stride(3) +
+                            non_zero_mask.select(1,2)*temp.stride(4) +
+                            1 * temp.stride(1) + b*temp.stride(0);
+     out_next.select(1,2) = non_zero_mask.select(1,0)*temp.stride(2) +
+                            non_zero_mask.select(1,1)*temp.stride(3) +
+                            non_zero_mask.select(1,2)*temp.stride(4) +
+                            2 * temp.stride(1) + b*temp.stride(0);
+
+     //std::cout << "b = " << b << std::endl;
+     out = at::cat({out, out_next},0).contiguous();
+
+  }
+
+ // std::cout << out << std::endl;
+  T selection = temp.take(out.view({out.numel()})) +100; //.view({out.size(0),3}) + 100;
+  temp.view(temp.numel()).index_put_(out.view(out.numel()), selection);
+*/
+
+void getPixelCenter(const T& pos, T& ix) {
+  AT_ASSERT(at::isFloatingType(infer_type(pos).scalarType()), "Error: getPixelCenter expects floating type tensor for pos argument");
+  AT_ASSERT(pos.size(1) == 3, "Pos must have 3 channels");
+  ix = pos.toType(at::kLong);
+  //bool is3D = (pos.size(2) > 1);
+  //if (!is3D) {
+  //  ix.select(1,2).fill_(0);
+  //}
+}
+
+T isOutOfDomain(const T& pos, const T& flags) {
+  AT_ASSERT(at::isFloatingType(infer_type(pos).scalarType()), "Error: isOutOfDomain expects floating type tensor for pos argument");
+  // Note: no need to make the difference between 2d and 3d as postion are intially
+  // moved by 0.5. If pos is 2d, pos.z = 0.5 and the two last conditions will always
+  // be false.
+  return( ((pos.select(1,0) <= 0).__or__
+           (pos.select(1,0) >= flags.size(4)).__or__
+           (pos.select(1,1) <= 0).__or__
+           (pos.select(1,1) >= flags.size(3)).__or__
+           (pos.select(1,2) <= 0).__or__
+           (pos.select(1,2) >= flags.size(2))).unsqueeze(1) );       
+}
+
+// Returns true if the cell is blocked. In FluidNet, it couldn't be called on 
+// cells outside the domain. However here we don't have any option as we are always
+// working with the complete pos tensor. Therefore we work with masks and
+// if outOfDomain, return false.
+
+T isBlockedCell(const T& pos, const T& flags) {
+
+  AT_ASSERT(at::isFloatingType(infer_type(pos).scalarType()), "Error: isBlockedCell expects floating type tensor for pos argument");
+
   int bsz = pos.size(0);
   int d = pos.size(2);
   int h = pos.size(3);
   int w = pos.size(4);
-  
-  // 0.5 is defined as the center of the first cell as the scheme shows:
-  //   |----x----|----x----|----x----|
-  //  x=0  0.5   1   1.5   2   2.5   3
-  T p = pos - 0.5;
 
-  // Cast to integer, truncates towards 0.
-  T pos0 = p.toType(at::kLong);
+  T ix;
+  T idx_b = at::infer_type(pos).arange(0, bsz).view({bsz,1,1,1}).toType(at::kLong);
+  idx_b = idx_b.expand({bsz,d,h,w});
+
+  T isOut = isOutOfDomain(pos, flags);
+
+  getPixelCenter(pos, ix);
+  ix.masked_fill_(isOut, 0); // If the pos lies outside the domain, the index function
+                             // will not work. We put all those cells in (0,0,0) and
+                             // we operate with mask so that we don't take those into
+                             // account,
  
-  T s1 = p.select(1,0) - pos0.select(1,0).toType(at::kFloat);
-  T t1 = p.select(1,1) - pos0.select(1,1).toType(at::kFloat);
-  T f1 = p.select(1,2) - pos0.select(1,2).toType(at::kFloat);
-  T s0 = 1 - s1; 
-  T t0 = 1 - t1;
-  T f0 = 1 - f1;
-
-  T x0 = pos0.select(1,0).clamp_(0, self.size(4) - 2);
-  T y0 = pos0.select(1,1).clamp_(0, self.size(3) - 2);
-  T z0 = pos0.select(1,2).clamp_(0, self.size(2) - 2);
-
-  T b_idx = infer_type(x0).arange(0, bsz).view({bsz,1,1,1});
-  b_idx = b_idx.expand({bsz,d,h,w});
-
-  s1.clamp_(0, 1);
-  t1.clamp_(0, 1);
-  f1.clamp_(0, 1);
-  s0.clamp_(0, 1);
-  t0.clamp_(0, 1);
-  f0.clamp_(0, 1);
-  
-  if (is3D) {
-   T Ia= self.index({b_idx, {}, z0  , y0  , x0  }).squeeze(4).unsqueeze(1);
-   T Ib= self.index({b_idx, {}, z0  , y0+1, x0  }).squeeze(4).unsqueeze(1);
-   T Ic= self.index({b_idx, {}, z0  , y0  , x0+1}).squeeze(4).unsqueeze(1);
-   T Id= self.index({b_idx, {}, z0  , y0+1, x0+1}).squeeze(4).unsqueeze(1);
-   T Ie= self.index({b_idx, {}, z0+1, y0  , x0  }).squeeze(4).unsqueeze(1);
-   T If= self.index({b_idx, {}, z0+1, y0+1, x0  }).squeeze(4).unsqueeze(1);
-   T Ig= self.index({b_idx, {}, z0+1, y0  , x0+1}).squeeze(4).unsqueeze(1);
-   T Ih= self.index({b_idx, {}, z0+1, y0+1, x0+1}).squeeze(4).unsqueeze(1);
-
-    return ( ((Ia*t0 + Ib*t1)*s0 + (Ic*t0 + Id*t1)*s1)*f0 +
-             ((Ie*t0 + If*t1)*s0 + (Ig*t0 + Ih*t1)*s1)*f1 ); 
-  } else {
-   T Ia= self.index({b_idx, {}, z0+1, y0  , x0  }).squeeze(4).unsqueeze(1);
-   T Ib= self.index({b_idx, {}, z0+1, y0+1, x0  }).squeeze(4).unsqueeze(1);
-   T Ic= self.index({b_idx, {}, z0+1, y0  , x0+1}).squeeze(4).unsqueeze(1);
-   T Id= self.index({b_idx, {}, z0+1, y0+1, x0+1}).squeeze(4).unsqueeze(1);
-
-    return ( (Ia*t0 + Ib*t1)*s0 + (Ic*t0 + Id*t1)*s1 );
-  }
+  T ret = at::zeros_like(flags).toType(at::kByte);
+  // ret is false by default. Only operate on cells that are INSIDE the domain, 
+  // using the complentary of isOut.
+  // Set ret to true when cells are obstacles.
+  ret.masked_scatter_(isOut.eq(0), 
+            (flags.index({idx_b, {}, ix.select(1,2), ix.select(1,1), ix.select(1,0)})
+           .squeeze(4).unsqueeze(1).ne(fluid::TypeFluid)).masked_select(isOut.eq(0)));
+  return ret;
 }
 
-void interpol1DWithFluid(
-    const T& val_a, const T& is_fluid_a,
-    const T& val_b, const T& is_fluid_b,
-    const T& t_a, const T& t_b,
-    T& is_fluid_ab, T& val_ab) {
+void clampToDomain(T& pos, const T& flags) {
 
-  T m0 = is_fluid_a.eq(0).__and__(is_fluid_b.eq(0));
-  T m1 = is_fluid_a.eq(0).__and__(m0.eq(0));
-  T m2 = is_fluid_b.eq(0).__and__(m1.eq(0)).__and__(m0.eq(0));
-  T m3 = 1 - (m0.__or__(m1).__or__(m2));
-
-  val_ab = val_a;
-  val_ab = val_ab.masked_fill_(m0, 0);
-  val_ab = val_ab.masked_scatter_(m1, val_b.masked_select(m1));
-  val_ab = val_ab.masked_scatter_(m2, val_a.masked_select(m2));
-  val_ab = val_ab.masked_scatter_(m3, (val_a*t_a + val_b*t_b).masked_select(m3));
-
-  is_fluid_ab = m0.eq(0);
+  pos.select(1,0).clamp((hit_margin), (flags.size(4) - hit_margin));
+  pos.select(1,1).clamp((hit_margin), (flags.size(3) - hit_margin));
+  pos.select(1,2).clamp((hit_margin), (flags.size(2) - hit_margin));
 }
 
+typedef enum Quadrants {
+  RIGHT = 0,
+  LEFT = 1,
+  MIDDLE = 2
+} Quadrants;
 
-void interpolWithFluid(T& self, T& flags, T& pos) {
+T HitBoundingBox(const T& minB, const T& maxB,
+                 const T& origin, const T& dir,
+                 const T& mask, T& coord){
 
-  AT_ASSERT(pos.size(1) == 3, "Input pos must have 3 channels");
+  T ret = ones_like(mask);
+  T inside = ones_like(mask);
+  T quadrant = zeros_like(origin);
+  T which_Plane = zeros_like(mask).toType(at::kLong);
+  T maxT = zeros_like(origin);
+  T candidate_plane = zeros_like(origin);
+  coord = zeros_like(origin);
 
-  bool is3D = (self.size(2) > 1);
-  int bsz = pos.size(0);
-  int d = pos.size(2);
-  int h = pos.size(3);
-  int w = pos.size(4);
-  // 0.5 is defined as the center of the first cell as the scheme shows:
-  //   |----x----|----x----|----x----|
-  //  x=0  0.5   1   1.5   2   2.5   3
-  T p = pos - 0.5;
+  T maskLT_minB = (origin < minB).__and__(mask);
+  T maskGT_maxB = (origin > maxB).__and__(mask);
+  T mask_insideB = (origin >= minB).__and__(origin <= maxB).__and__(mask);
 
-  // Cast to integer, truncates towards 0.
-  T pos0 = p.toType(at::kLong);
+  quadrant.masked_fill_(maskLT_minB, LEFT);
+  candidate_plane.masked_scatter_(maskLT_minB, minB.masked_select(maskLT_minB));  
+  inside.masked_fill_(maskLT_minB.select(1,0).__or__
+                     (maskLT_minB.select(1,1)).__or__
+                     (maskLT_minB.select(1,2)).unsqueeze(1), 0);
 
-  T s1 = p.select(1,0) - pos0.select(1,0).toType(at::kFloat);
-  T t1 = p.select(1,1) - pos0.select(1,1).toType(at::kFloat);
-  T f1 = p.select(1,2) - pos0.select(1,2).toType(at::kFloat);
-  T s0 = 1 - s1;
-  T t0 = 1 - t1;
-  T f0 = 1 - f1;
+  quadrant.masked_fill_(maskGT_maxB, RIGHT);
+  candidate_plane.masked_scatter_(maskGT_maxB, maxB.masked_select(maskGT_maxB));  
+  inside.masked_fill_(maskGT_maxB.select(1,0).__or__
+                     (maskGT_maxB.select(1,1)).__or__
+                     (maskGT_maxB.select(1,2)).unsqueeze(1), 0);
+ 
+  quadrant.masked_fill_(mask_insideB, MIDDLE);
 
-  T x0 = pos0.select(1,0).clamp_(0, self.size(4) - 2);
-  T y0 = pos0.select(1,1).clamp_(0, self.size(3) - 2);
-  T z0 = pos0.select(1,2).clamp_(0, self.size(2) - 2);
+  // Ray origin inside bounding box. 
+  coord.masked_scatter_(inside.__and__(mask), origin.masked_select(inside.__and__(mask)));
 
-  T b_idx = infer_type(x0).arange(0, bsz).view({bsz,1,1,1});
-  b_idx = b_idx.expand({bsz,d,h,w});
+  // Otherwise, calculte T distances to candidate planes.
+  T outside = inside.ne(1).__and__(mask);
 
-  s1.clamp_(0, 1);
-  t1.clamp_(0, 1);
-  f1.clamp_(0, 1);
-  s0.clamp_(0, 1);
-  t0.clamp_(0, 1);
-  f0.clamp_(0, 1);
-
-  if (is3D) {
-   // val_ab = data(xi, yi, zi, 0, b) * t0 +
-   //          data(xi, yi + 1, zi, 0, b) * t1
-   T Ia = self.index({b_idx, {}, z0  , y0  , x0  }).squeeze(4).unsqueeze(1);
-   T Ib = self.index({b_idx, {}, z0  , y0+1, x0  }).squeeze(4).unsqueeze(1);
-
-   T is_fluid_a = flags.index({b_idx, {}, z0  , y0  , x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
-   T is_fluid_b = flags.index({b_idx, {}, z0  , y0+1, x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
-
-   T Iab;
-   T is_fluid_ab; 
-   interpol1DWithFluid(Ia, is_fluid_a, Ib, is_fluid_b, t0, t1, is_fluid_ab, Iab); 
-
-   // val_cd = data(xi + 1, yi, zi, 0, b) * t0 +
-   //          data(xi + 1, yi + 1, zi, 0, b) * t1
-   T Ic = self.index({b_idx, {}, z0  , y0  , x0+1}).squeeze(4).unsqueeze(1);
-   T Id = self.index({b_idx, {}, z0  , y0+1, x0+1}).squeeze(4).unsqueeze(1);
-
-   T is_fluid_c = flags.index({b_idx, {}, z0  , y0  , x0+1}).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
-   T is_fluid_d = flags.index({b_idx, {}, z0  , y0+1, x0+1}).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
-
-   T Icd;
-   T is_fluid_cd; 
-   interpol1DWithFluid(Ic, is_fluid_c, Id, is_fluid_d, t0, t1, is_fluid_cd, Icd); 
-
-   // val_ef = data(xi, yi, zi + 1, 0, b) * t0 +
-   //          data(xi, yi + 1, zi + 1, 0, b) * t1
-   T Ie = self.index({b_idx, {}, z0+1, y0  , x0  }).squeeze(4).unsqueeze(1);
-   T If = self.index({b_idx, {}, z0+1, y0+1, x0  }).squeeze(4).unsqueeze(1);
-
-   T is_fluid_c = flags.index({b_idx, {}, z0+1, y0  , x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
-   T is_fluid_d = flags.index({b_idx, {}, z0+1, y0+1, x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
-
-   T Ief;
-   T is_fluid_ef;
-   interpol1DWithFluid(Ie, is_fluid_e, If, is_fluid_f, t0, t1, is_fluid_ef, Ief);
-
-   // val_gh = data(xi + 1, yi, zi + 1, 0, b) * t0 +
-   //          data(xi + 1, yi + 1, zi + 1, 0, b) * t1
-   T Ig = self.index({b_idx, {}, z0+1, y0  , x0+1}).squeeze(4).unsqueeze(1);
-   T Ih = self.index({b_idx, {}, z0+1, y0+1, x0+1}).squeeze(4).unsqueeze(1);
-
-   T is_fluid_g = flags.index({b_idx, {}, z0+1, y0  , x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
-   T is_fluid_h = flags.index({b_idx, {}, z0+1, y0+1, x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
-
-   T Igh;
-   T is_fluid_gh;
-   interpol1DWithFluid(Ig, is_fluid_g, Ih, is_fluid_h, t0, t1, is_fluid_gh, Igh);
-
-   // val_abcd = val_ab * s0 + val_cd * s1
-   T Iabcd;
-   T is_fluid_abcd;
-   interpol1DWithFluid(Iab, is_fluid_ab, Icd, is_fluid_cd, s0, s1, is_fluid_abcd, Iabcd);
-
-   // val_efgh = val_ef * s0 + val_gh * s1
-   T Iefgh;
-   T is_fluid_efgh;
-   interpol1DWithFluid(Ief, is_fluid_ef, Igh, is_fluid_gh, s0, s1, is_fluid_efgh, Iefgh);
+  T NotMiddleAndDirNotNull = outside.__and__(quadrant.ne(MIDDLE)).__and__(dir.ne(0)).__and__(mask);
+  T MiddleOrDirNull = outside.__and__(quadrant.eq(MIDDLE)).__or__(dir.eq(0)).__and__(mask);
    
-   // val = val_abcd * f0 + val_efgh * f1
-   T Ival;
-   T is_fluid;
-   interpol1DWithFluid(Iabcd, is_fluid_abcd, Iefgh, is_fluid_efgh, f0, f1,
-                             is_fluid, Ival);
+  maxT.masked_scatter_(NotMiddleAndDirNotNull, 
+                      ((candidate_plane - origin) / dir).masked_select(NotMiddleAndDirNotNull));
+  maxT.masked_fill_(MiddleOrDirNull, -1); 
+  
+  // Get the largest of the maxT's for final choice of intersection.
+  T whichPlane = maxT.argmax(1,true);
 
-   T no_fluid = is_fluid.eq(0);
-   Ival = Ival.masked_scatter_(no_fluid, interpol(self, pos).masked_select(no_fluid));
-   return Ival;
-  } else {
-   // val_ab = data(xi, yi, 0, 0, b) * t0 +
-   //          data(xi, yi + 1, 0, 0, b) * t1
-   T Ia = self.index({b_idx, {}, z0+1, y0  , x0  }).squeeze(4).unsqueeze(1);
-   T Ib = self.index({b_idx, {}, z0+1, y0+1, x0  }).squeeze(4).unsqueeze(1);
+  T finalCandidate = maxT.max_values(1, true);
 
-   T is_fluid_a = flags.index({b_idx, {}, z0+1, y0  , x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
-   T is_fluid_b = flags.index({b_idx, {}, z0+1, y0+1, x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
+  // Check final candidate actually inside the box and calculate the coords (if not).
+  T finalCandidateInsideBox = (finalCandidate < 0).__and__(outside).__and__(mask);
+  ret.masked_fill_(finalCandidateInsideBox, 0);
 
-   T Iab;
-   T is_fluid_ab;
-   interpol1DWithFluid(Ia, is_fluid_a, Ib, is_fluid_b, t0, t1, is_fluid_ab, Iab); 
+  const at::Scalar err_tol = 1e-6;
+  
+   
+  coord.select(1,0) = where(whichPlane.squeeze(1).eq(0), candidate_plane.select(1,0),
+                     origin.select(1,0) + finalCandidate.squeeze(1) * dir.select(1,0));	
+  coord.select(1,1) = where(whichPlane.squeeze(1).eq(1), candidate_plane.select(1,1),
+                     origin.select(1,1) + finalCandidate.squeeze(1) * dir.select(1,1));	
+  coord.select(1,2) = where(whichPlane.squeeze(1).eq(2), candidate_plane.select(1,2),
+                     origin.select(1,2) + finalCandidate.squeeze(1) * dir.select(1,2));	
 
-   // val_cd = data(xi + 1, yi, 0, 0, b) * t0 +
-   //          data(xi + 1, yi + 1, 0, 0, b) * t1
-   T Ic = self.index({b_idx, {}, z0+1 , y0  , x0+1}).squeeze(4).unsqueeze(1);
-   T Id = self.index({b_idx, {}, z0+1, y0+1, x0+1}).squeeze(4).unsqueeze(1);
+  std::cout << coord[0][0][0][2][2] << std::endl;
+  std::cout << coord[0][1][0][2][2] << std::endl;
+  std::cout << std::endl;
 
-   T is_fluid_c = flags.index({b_idx, {}, z0+1, y0  , x0+1}).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
-   T is_fluid_d = flags.index({b_idx, {}, z0+1, y0+1, x0+1}).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
+  T coordOutsideBox =(((whichPlane.squeeze(1).ne(0).__and__
+                       ((coord.select(1,0) < minB.select(1,0) - err_tol).__or__
+                        (coord.select(1,0) > maxB.select(1,0) + err_tol)))
+                        .__or__
+                       (whichPlane.squeeze(1).ne(1).__and__ 
+                       ((coord.select(1,1) < minB.select(1,1) - err_tol).__or__
+                        (coord.select(1,1) > maxB.select(1,1) + err_tol)))
+                        .__or__
+                       (whichPlane.squeeze(1).ne(2).__and__ 
+                       ((coord.select(1,2) < minB.select(1,2) - err_tol).__or__
+                        (coord.select(1,2) > maxB.select(1,2) + err_tol)))
+                      ).__and__(mask.squeeze(1))).unsqueeze(1);
+ 
+  ret.masked_fill_(coordOutsideBox, 0);
+  return ret;
+}
 
-   T Icd;
-   T is_fluid_cd;
-   interpol1DWithFluid(Ic, is_fluid_c, Id, is_fluid_d, t0, t1, is_fluid_cd, Icd);
+// calcRayBoxIntersection will calculate the intersection point for the ray
+// starting at pos, and pointing along dt (which should be unit length).
+// The box is size 1 and is centered at ctr.
+T calcRayBoxIntersection(const T& pos, const T& dt, const T& ctr,
+                         const float hit_margin, const T& mask,  T& ipos) {
+   
+  AT_ASSERT(hit_margin > 0, "Error: calcRayBoxIntersection hit_margin < 0");
+  T box_min = ctr - 0.5 - hit_margin;
+  T box_max = ctr + 0.5 + hit_margin;
 
-   // val = val_ab * s0 + val_cd * s1
-   T Ival;
-   T is_fluid;
-   interpol1DWithFluid(Iab, is_fluid_ab, Icd, is_fluid_cd, s0, s1, is_fluid, Ival);
+  return HitBoundingBox(box_min, box_max,  // box
+                        pos, dt,           // ray
+                        mask, ipos);
+}
 
-   T no_fluid = is_fluid.eq(0);
-   Ival = Ival.masked_scatter_(no_fluid, interpol(self, pos).masked_select(no_fluid));
-   return Ival;
+
+// calcRayBorderIntersection will calculate the intersection point for the ray
+// starting at pos and pointing to next_pos.
+//
+// IMPORTANT: This function ASSUMES that the ray actually intersects. Nasty
+// things will happen if it does not.
+// EDIT(tompson, 09/25/16): This is so important that we'll actually double
+// check the input coords anyway.
+
+T calcRayBorderIntersection(const T& pos, const T& next_pos,
+                            const T& flags, const float hit_margin,
+                            const T& mOutDom,
+                            T& ipos) {
+
+   AT_ASSERT(hit_margin > 0, "Error: calcRayBorderIntersection hit_margin < 0");
+     
+   // Here we only operate on source which are INSIDE the boundary
+   // and target location OUTSIDE the boundary. Find a way to assert this.
+   T maskAssertInside = isOutOfDomain(pos, flags);
+   AT_ASSERT(maskAssertInside.masked_select(mOutDom).
+                equal(mOutDom.masked_select(mOutDom).eq(0)), "Error: source location is already outside the domain!");
+  
+   T maskAssertOutside = isOutOfDomain(next_pos, flags);
+   AT_ASSERT(maskAssertOutside.masked_select(mOutDom).
+                 equal(mOutDom.masked_select(mOutDom)), "Error: target location is already outside the domain!");
+
+   // Calculate the minimum step length to exit each face and then step that
+   // far. The line equation is:
+   //   P = gamma * (next_pos - pos) + pos.
+   // So calculate gamma required to make P < + margin for each dim
+   // independently.
+   //   P_i = m --> m - pos_i = gamma * (next_pos_i - pos_i)
+   //   --> gamma_i = (m - pos_i) / (next_pos_i - pos_i)
+
+   // minimum step only has ONE channel
+   T min_step = full_like(flags.squeeze(1).toType(at::kFloat), INFINITY);
+
+   // Left Face
+   T maskLF = next_pos.select(1,0) <= hit_margin;
+   T dx = next_pos.select(1,0) - pos.select(1,0); //Squeeze dim 1
+   T maskGTEps = (at::abs(dx) >= epsilon).__and__(maskLF).__and__(mOutDom.squeeze(1));
+   T xstep = (hit_margin - pos.select(1,0)) / dx;
+   min_step.
+       masked_scatter_(maskGTEps, (at::min(min_step, xstep)).masked_select(maskGTEps));
+   // Front Face
+   T maskFF = next_pos.select(1,1) <= hit_margin;
+   T dy = next_pos.select(1,1) - pos.select(1,1); //Squeeze dim 1
+   maskGTEps = (at::abs(dy) >= epsilon).__and__(maskFF).__and__(mOutDom.squeeze(1)); 
+   T ystep = (hit_margin - pos.select(1,1)) / dy;
+   min_step.
+      masked_scatter_(maskGTEps, at::min(min_step, xstep).masked_select(maskGTEps));
+   // Bottom Face
+   T maskBF = next_pos.select(1,2) <= hit_margin;
+   T dz = next_pos.select(1,2) - pos.select(1,2); //Squeeze dim 1
+   maskGTEps = (at::abs(dz) >= epsilon).__and__(maskBF).__and__(mOutDom.squeeze(1)); 
+   T zstep = (hit_margin - pos.select(1,2)) / dz;
+   min_step.
+      masked_scatter_(maskGTEps, at::min(min_step, zstep).masked_select(maskGTEps));
+      
+   // Also calculate the min step to exit a positive face.
+   //   P_i = dim - m --> dim - m - pos_i = gamma * (next_pos_i - pos_i)
+   //   --> gamma = (dim - m - pos_i) / (next_pos_i - pos_i)
+   
+   // Right Face
+   T maskRF = next_pos.select(1,0) >= (flags.size(4) - hit_margin);
+   dx = next_pos.select(1,0) - pos.select(1,0); //Squeeze dim 1
+   maskGTEps = (at::abs(dx) >= epsilon).__and__(maskRF).__and__(mOutDom.squeeze(1)); 
+   xstep = (flags.size(4) - hit_margin - pos.select(1,0)) / dx;
+   min_step.
+       masked_scatter_(maskGTEps, at::min(min_step, xstep).masked_select(maskGTEps));
+   // Back Face
+   T maskBBF = next_pos.select(1,1) >= (flags.size(3) - hit_margin);
+   dy = next_pos.select(1,1) - pos.select(1,1); //Squeeze dim 1
+   maskGTEps = (at::abs(dy) >= epsilon).__and__(maskBBF).__and__(mOutDom.squeeze(1)); 
+   ystep = (flags.size(3) - hit_margin - pos.select(1,1)) / dy;
+   min_step.
+      masked_scatter_(maskGTEps, at::min(min_step, ystep).masked_select(maskGTEps));
+   // Upper Face
+   T maskUF = next_pos.select(1,2) >= (flags.size(2) - hit_margin);
+   dz = next_pos.select(1,2) - pos.select(1,2); //Squeeze dim 1
+   maskGTEps = (at::abs(dz) >= epsilon).__and__(maskUF).__and__(mOutDom.squeeze(1)); 
+   zstep = (flags.size(2) - hit_margin - pos.select(1,2)) / dz;
+   min_step.
+      masked_scatter_(maskGTEps, at::min(min_step, zstep).masked_select(maskGTEps));
+
+   T maskHit = (min_step >= 0).__and__(min_step < INFINITY).unsqueeze(1);
+   ipos = at::zeros_like(pos);
+   ipos.masked_scatter_(maskHit, 
+          (min_step.unsqueeze(1) * (next_pos - pos) + pos).masked_select(maskHit));
+  
+   return maskHit;
+}
+
+void calcLineTrace(const T& pos, const T& delta, const T& flags,
+                T& new_pos, const bool do_line_trace){
+
+  T maskRet = at::zeros_like(flags).toType(at::kByte);
+  T mCont = at::ones_like(flags).toType(at::kByte);
+  if (!do_line_trace) {
+    new_pos = pos + delta;
+    return;  //return maskRet;
   }
+
+  // If we are ALREADY outside the domain, don't go further (mask continue = false)
+  //pos.select(1,0) += 1;
+  //pos.select(1,1) += 1;
+  T isOut = isOutOfDomain(pos, flags);
+  mCont.masked_fill_(isOut, 0);
+  
+  // If we are ALREADY in an obstacle segment, don't go further (mask continue = false)
+  T isBlocked = isBlockedCell(pos, flags);
+  mCont.masked_fill_(isBlocked, 0);
+  
+  new_pos = pos.clone();
+  const T length = delta.norm(2, 1, true); // L2 norm in dimension 1 keeping dimension.
+
+  // We are not being asked to step anywhere. Set mask continue to false.
+  T infToEps = (length <= epsilon).__and__(mCont);
+  mCont.masked_fill_(infToEps, 0);
+  
+  // The rest of cells are the ones having a true mask in mCont.
+  // We will perform the ops on those cells. 
+  // The rest of the cells are stopped, i.e mCont is false.
+ 
+  // Figure out the step size in x, y and z for our marching.
+  // Only for the non-stopped cells (maskStop is false).
+  T dt = at::zeros_like(delta);
+  dt.masked_scatter_(mCont, (delta/length).masked_select(mCont));
+
+  // Tompson: We start the line search, by stepping a unit length along the
+  // vector and checking the neighbours.
+  //
+  // A few words about the implementation (because it's complicated and perhaps
+  // needlessly so). We maintain a VERY important loop invariant: new_pos is
+  // NEVER allowed to enter solid geometry or go off the domain. next_pos
+  // is the next step's tentative location, and we will always try and back
+  // it off to the closest non-geometry valid cell before updating new_pos.
+  //
+  // We will also go to great lengths to ensure this loop invariant is
+  // correct (probably at the expense of speed).
+
+  T cur_length = at::zeros_like(length);
+  T next_pos = at::zeros_like(pos);
+ 
+  //T maskEndLine = (cur_length < length - hit_margin);
+ 
+  // The while loop ends when all line traces are done, i.e. maskStop is filled 
+  // with ones. Some points will encounter obstacles, others may not. 
+  // We return a boolean mask where true means that 
+  // the point encountered an obstacle, false otherwise.
+  while (!mCont.equal(zeros_like(mCont))) {
+    T reachedLength = (cur_length >= length - hit_margin).__and__(mCont);
+    mCont.masked_fill_(reachedLength, 0);
+
+    if (mCont.equal(zeros_like(mCont))) {
+      break;
+    }
+
+    // We haven't stepped far enough. So take a step.
+    T cur_step = at::min(length - cur_length, at::ones_like(length));
+    next_pos.masked_scatter_( mCont, 
+                            ( new_pos + (dt * cur_step) ).masked_select(mCont) );
+    // Now check if we went too far,
+    // There are two possible cases. We've either stepped out of the domain or
+    // entered a blocked cell.
+   
+    // Case 1. 'next_pos' exits the grid.
+    {
+      T mOutDom = isOutOfDomain(next_pos, flags).__and__(mCont);
+      T ipos;
+      T maskHit = calcRayBorderIntersection(pos, next_pos, flags,
+                                        hit_margin, mOutDom, ipos);
+      // Case: hit==false && mOutDom = false
+      // This is an EXTREMELY rare case. It happens because either the ray is
+      // almost parallel to the domain boundary, OR floating point round-off
+      // causes the intersection test to fail.
+
+      // In this case, fall back to simply clamping next_pos inside the domain
+      // boundary. It's not ideal, but better than a hard failure (the reason
+      // why it's wrong is that clamping will bring the point off the ray).
+      T clampedIpos = ipos.clone();
+      T maskNoHit = maskHit.eq(0).__and__(mOutDom);
+      clampedIpos.masked_scatter_(maskNoHit, next_pos.masked_select(maskNoHit)); 
+      clampToDomain(clampedIpos, flags);
+      ipos.masked_scatter_(maskNoHit, clampedIpos.masked_select(maskNoHit));
+ 
+      // Do some sanity checks.
+      // The logic above should always put ipos back hit_margin inside the
+      // simulation domain.
+      AT_ASSERT(isOutOfDomain(ipos, flags).masked_select(mOutDom).
+           equal(mOutDom.masked_select(mOutDom).eq(0)), "Error: case 1 exited bounds!");
+
+      isBlocked = isBlockedCell(ipos, flags).__and__(mOutDom);
+      T isAgainstBorder = isBlockedCell(ipos, flags).eq(0).__and__(mOutDom);
+ 
+      // We are up against the border and not in a blocked cell.
+      // Change continue to false.
+      new_pos.masked_scatter_(isAgainstBorder, ipos.masked_select(isAgainstBorder)); 
+
+      mCont.masked_fill_(isAgainstBorder, 0);
+
+      // We hit the border boundary, but we entered a blocked cell.
+      // Continue on to case 2. 
+      next_pos.masked_scatter_(isBlocked.__and__(mCont), ipos.masked_select(isBlocked.__and__(mCont)));
+    }
+   
+    // Case 2. next_pos enters a blocked cell.
+    {
+      T mBlock = isBlockedCell(next_pos, flags).__and__(mCont);
+      std::cout << "Case 2 " << std::endl;
+      std::cout << mBlock << std::endl;
+      AT_ASSERT(isBlockedCell(new_pos, flags).masked_select(mBlock).
+           equal(mBlock.masked_select(mBlock).eq(0)), "Error: Ray source is already in a blocked cell!");
+      
+      const uint32_t max_count = 4; 
+      // TODO(tompson): high enough?
+      // Note: we need to spin here because while we backoff a blocked cell that
+      // is a unit step away, there might be ANOTHER blocked cell along the ray
+      // which is less than a unit step away.
+      T countMask = mBlock.clone();
+      for (uint32_t count = 0; count <= max_count; count++) {
+        T mBlockCount = isBlockedCell(next_pos, flags).ne(1).__and__(countMask);
+        std::cout << "countMAsk "<< std::endl;
+        std::cout << mBlock << std::endl;
+
+        countMask.masked_fill_(mBlockCount, 0);
+
+        std::cout << "Here before leaving"<< std::endl;
+        std::cout << mBlock << std::endl;
+
+        if (countMask.masked_select(mBlock).equal(
+                 zeros_like(countMask.masked_select(mBlock)))) {
+            std::cout << "Here I am " << std::endl;
+          break;
+        }
+       //std::cout << countMask.masked_select(mBlock) << std::endl;
+       ///std::cout << std::endl;
+       AT_ASSERT(count < max_count, "Error: Cannot find non-geometry point (infinite loop)!");
+       
+       // Calculate the center of the blocker cell.
+       T next_pos_ctr;
+       T idx;
+       getPixelCenter(next_pos, idx);
+
+       next_pos_ctr = idx.toType(infer_type(pos)) + 0.5;
+       AT_ASSERT(isOutOfDomain(next_pos_ctr, flags).eq(0).masked_select(countMask).
+           equal(countMask.masked_select(countMask)), "Error: Center of blocker cell is out of the domain!");
+     
+       T ipos;
+       T hit = calcRayBoxIntersection(new_pos, dt, next_pos_ctr,
+                                      hit_margin, countMask, ipos);
+       mCont.masked_fill_(hit.eq(0).__and__(countMask), 0);
+       countMask.masked_fill_(hit.eq(0).__and__(countMask), 0);
+       std::cout << "Second mblock" << std::endl;
+       std::cout << mBlock << std::endl;
+
+       next_pos.masked_scatter_(hit.__and__(countMask),
+                               ipos.masked_select(hit.__and__(countMask)));
+       std::cout << next_pos[0][0][0][2][2] << std::endl;
+       std::cout << next_pos[0][1][0][2][2] << std::endl;
+    } 
+
+    // At this point next_pos is guaranteed to be within the domain and
+    // not within a solid cell.
+    new_pos.masked_scatter_(mBlock.__and__(mCont),
+                            next_pos.masked_select(mBlock.__and__(mCont)));
+    std::cout << "Hello" << std::endl; 
+    
+    std::cout << new_pos[0][0][0][2][2] << std::endl;
+       std::cout << new_pos[0][1][0][2][2] << std::endl;
+
+    // Change continue to false.
+    std::cout << "m block" << std::endl;
+    std::cout << mBlock << std::endl; 
+    mCont.masked_fill_(mBlock.__and__(mCont), 0);
+    std::cout << mCont << std::endl; 
+
+    } 
+ 
+  // Otherwise, update the position to the current step location
+  new_pos.masked_scatter_(mCont, next_pos.masked_select(mCont));
+  cur_length.masked_scatter_(mCont, (cur_length+cur_step).masked_select(mCont));
+  
+  //Check if cur_length < length - hit_margin. Otherwise, set continue to false.
+  reachedLength = (cur_length >= length - hit_margin).__and__(mCont);
+  mCont.masked_fill_(reachedLength, 0);
+    
+  }
+
+  return;
 }
 
 int main() {
 
   auto && Tfloat = CPU(at::kFloat);
 
-  int dim = 2;
- 
-      std::string fn = std::to_string(dim) + "d_gravity.bin";
-      at::Tensor undef1;
-      at::Tensor U;
-      at::Tensor flags;
-      at::Tensor density;
-      bool is3D ;
-      loadMantaBatch(fn, undef1, U, flags, density, is3D);
-      assertNotAllEqual(U);
-      assertNotAllEqual(flags);
-
-      AT_ASSERT(is3D == (dim == 3), "Failed assert is3D");
-      fn = std::to_string(dim) + "d_correctVelocity.bin";
-      at::Tensor undef2;
-      at::Tensor pressure;
-      at::Tensor UManta;
-      at::Tensor flagsManta;
-      loadMantaBatch(fn, pressure, UManta, flagsManta, undef2, is3D);
-      AT_ASSERT(is3D == (dim == 3), "Failed assert is3D");
-
-      AT_ASSERT(flags.equal(flagsManta), "Flags changed!");
-      AT_ASSERT(at::Scalar(at::max(at::abs(U - UManta))).toFloat() > 1e-5, "No velocities changed in Manta!");
+//  int dim = 2;
+// 
+//      std::string fn = std::to_string(dim) + "d_gravity.bin";
+//      at::Tensor undef1;
+//      at::Tensor U;
+//      at::Tensor flags;
+//      at::Tensor density;
+//      bool is3D ;
+//      loadMantaBatch(fn, undef1, U, flags, density, is3D);
+//      assertNotAllEqual(U);
+//      assertNotAllEqual(flags);
+//
+//      AT_ASSERT(is3D == (dim == 3), "Failed assert is3D");
+//      fn = std::to_string(dim) + "d_correctVelocity.bin";
+//      at::Tensor undef2;
+//      at::Tensor pressure;
+//      at::Tensor UManta;
+//      at::Tensor flagsManta;
+//      loadMantaBatch(fn, pressure, UManta, flagsManta, undef2, is3D);
+//      AT_ASSERT(is3D == (dim == 3), "Failed assert is3D");
+//
+//      AT_ASSERT(flags.equal(flagsManta), "Flags changed!");
+//      AT_ASSERT(at::Scalar(at::max(at::abs(U - UManta))).toFloat() > 1e-5, "No velocities changed in Manta!");
 
 //  int b = flags.size(0);
 //  int d = flags.size(2);
@@ -292,39 +583,58 @@ int main() {
   //index_ten.expand_as(pos);
   // std::cout << pos << std::endl;
    
-  T im = Tfloat.rand({b,1,d,h,w}) * 255;
-  T flags_rand = CPU(at::kInt).randint(2, {b, 1, d,h,w}) + 1;
-  T self = im;
-  T pos = CPU(at::kFloat).rand({b,3,d,h,w}) * (h);
-  // 0.5 is defined as the center of the first cell as the scheme shows:
-  //   |----x----|----x----|----x----|
-  //  x=0  0.5   1   1.5   2   2.5   3
-  T p = pos - 0.5;
+//  T self = Tfloat.rand({b,1,d,h,w}) * 255;
+//  T flags = CPU(at::kInt).randint(2, {b, 1, d,h,w}) + 1;
+//  T pos = CPU(at::kFloat).rand({b,3,d,h,w}) * (h-1);
+//  T new_pos;
+//  T pos = CPU(at::kFloat).full({b,3,d,h,w}, 0.5);
+//  for (int i = 0; i<w; i++) {
+//    for (int j= 0; j < h; j++) {
+//      for (int k= 0; k< d; k++) {
+//         pos[0][0][k][j][i] = i+0.5;
+//         pos[0][1][k][j][i] = j+0.5;
+//         pos[0][2][k][j][i] = k+0.5;
+//      }
+//    }
+//  } 
+//  T delta = CPU(at::kFloat).full({b,3,d,h,w}, 1);
+//  delta.select(1,2).fill_(0);  
 
-  // Cast to integer, truncates towards 0.
-  T x0 = p.toType(at::kLong);
 
-  T s1 = p.select(1,0) - x0.select(1,0).toType(at::kFloat);
-  T t1 = p.select(1,1) - x0.select(1,1).toType(at::kFloat);
-  T f1 = p.select(1,2) - x0.select(1,2).toType(at::kFloat);
-  T s0 = 1 - s1;
-  T t0 = 1 - t1;
-  T f0 = 1 - f1;
+  T pos = CPU(at::kFloat).full({b,3,d,h,w}, 0.5);
+  for (int i = 0; i<w; i++) {
+    for (int j= 0; j < h; j++) {
+      for (int k= 0; k< d; k++) {
+         pos[0][0][k][j][i] = i+0.5;
+         pos[0][1][k][j][i] = j+0.5;
+         pos[0][2][k][j][i] = k+0.5;
+      }
+    }
+  } 
 
-  x0.select(1,0).clamp_(0, self.size(4) - 2);
-  x0.select(1,1).clamp_(0, self.size(3) - 2);
-  x0.select(1,2).clamp_(0, self.size(2) - 2);
+  T flags = CPU(at::kInt).ones({b, 1, d,h,w});
+  T new_pos;
 
-  T second_tensor = CPU(at::kLong).arange(0, x0.size(0)).view({x0.size(0),1,1,1});
-  second_tensor = second_tensor.expand({x0.size(0), x0.size(2), x0.size(3), x0.size(4)});
-  s1.clamp_(0, 1);
-  t1.clamp_(0, 1);
-  f1.clamp_(0, 1);
-  s0.clamp_(0, 1);
-  t0.clamp_(0, 1);
-  f0.clamp_(0, 1);
+  T delta = CPU(at::kFloat).zeros({b,3,d,h,w});
 
-  T Ia = self.index({second_tensor,{},{}, x0.select(1,1)  , x0.select(1,0)}).squeeze(4).squeeze(4).unsqueeze(1);//;//.transpose(3,4).transpose(2,3).transpose(1,2);
-  interpolWithFluid(im, flags_rand, pos);
-// 
+  flags.select(0,0)[0][0][1][2] = 2;
+  flags.select(0,0)[0][0][3][0] = 2;
+
+  delta.select(0,0).select(0,0) = -1;
+  delta[0][0][0][2][2] = -1;
+  delta[0][1][0][2][2] = -2;
+  
+  
+  calcLineTrace(pos, delta, flags,
+                new_pos, true);
+
+  std::cout << new_pos << std::endl;
+//  
+//  pos[0][0][0][0][0] = -100;
+//
+//
+//  T tempPos = pos;
+//  std::cout << pos << std::endl;
+  //clampToDomain(pos, flags);
+ 
 }

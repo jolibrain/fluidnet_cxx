@@ -166,14 +166,14 @@ void emptyDomain(at::Tensor& flags, int bnd = 1) {
 }
 
 // Top level simulation loop.
-void simulate(std::vector<at::Tensor>& batch) {
+void simulate(std::vector<at::Tensor>& batch, int res) {
   
-  float dt = 1;
-  float maccormackStrength = 1; 
+  float dt = 0.1;
+  float maccormackStrength = 0.6; 
   bool sampleOutsideFluid = false;
 
-  float buoyancyScale = 1.1;
-  float gravityScale = 1.1;
+  float buoyancyScale = 2.0 * (res / 128);
+  float gravityScale = 1 * (res / 128);
   
   // Get p, U, flags and density from batch.
   at::Tensor p = batch[0];
@@ -192,7 +192,7 @@ void simulate(std::vector<at::Tensor>& batch) {
   setConstVals(batch, p, U, flags, density);
 
   at::Tensor gravity = infer_type(U).tensor({3}).fill_(0);  
-  gravity[2] = 1;
+  gravity[1] = 1;
 
   // Add external forces: buoyancy.
   gravity.mul_(-(fluid::getDx(flags) / 4) * buoyancyScale);
@@ -225,7 +225,7 @@ void simulate(std::vector<at::Tensor>& batch) {
 
 int main() {
 
-int res = 64;
+int res = 256;
 
 at::Tensor p =       CPU(at::kFloat).zeros({1,1,1,res,res});
 at::Tensor U =       CPU(at::kFloat).zeros({1,2,1,res,res});
@@ -246,13 +246,17 @@ float plumeScale = 1.0 * ((float) res/128);
 
 createPlumeBCs(batch, densityVal, plumeScale, rad);
 int maxIter = 1000;
+int outIter = 10;
 int it = 0;
 while (it < maxIter) {
   std::cout << "Iteration " << it << " out of " << maxIter << std::endl;
-  fluid::simulate(batch);
-  std::string name_density = "density_it_" + std::to_string(it);
-  plotTensor2D(batch[3], 500, 500, name_density);
+  fluid::simulate(batch, res);
   it++;
+  if (it % outIter == 0) {
+    std::cout << "Writing output at iteration " << it << std::endl;
+    std::string name_density = "density_it_" + std::to_string(it);
+    plotTensor2D(batch[3], 500, 500, name_density);
+  }
 }
 //  auto && Tfloat = CPU(at::kFloat);
 //
