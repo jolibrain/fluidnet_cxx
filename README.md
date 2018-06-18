@@ -53,7 +53,7 @@ cmake .. -DCMAKE_INSTALL_PREFIX=/where/you/want # specify your dest directory
 make install
 ```
 
-#4. Install OpenCV2 (temporary, must be removed and removed with scientific plotter)
+#4. Install OpenCV2 (temporary, must be removed and replaced with scientific plotter)
 --------------
 
 Find the releases [here](https://opencv.org/releases.html)
