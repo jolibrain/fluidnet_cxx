@@ -52,7 +52,13 @@ cmake .. -DCMAKE_INSTALL_PREFIX=/where/you/want # specify your dest directory
 # cmake .. -DUSE_CUDA=OFF  # for CPU only machines
 make install
 ```
-#3. Build and compile fluidnet_cxx
+
+#4. Install OpenCV2 (temporary, must be removed and removed with scientific plotter)
+--------------
+
+Find the releases [here](https://opencv.org/releases.html)
+
+#5. Build and compile fluidnet_cxx
 ---------------
 
 In main folder
