@@ -1,851 +1,369 @@
 #include "advection.h"
 
+#include "advect_type.h"
+#include "calc_line_trace.h"
+#include "grid/cell_type.h"
+#include "grid/grid_new.h"
+
 namespace fluid {
 
-// *****************************************************************************
-// AdvectScalar
-// *****************************************************************************
+typedef at::Tensor T;
+
+// TODO: Arange headers, and eliminate fluid::ten:: namespace
 
 T SemiLagrangeEulerFluidNet
 (
-    FlagGrid& flags,
-    MACGrid& vel,
-    RealGrid& src,
-    float dt,
-    int order_space,
-    int32_t i, int32_t j, int32_t k, int32_t ibatch,
-    const bool line_trace,
-    const bool sample_outside_fluid
+  T& flags, T& vel, T& src, T& maskBorder,
+  float dt, float order_space,
+  T& i, T& j, T& k,
+  const bool line_trace,
+  const bool sample_outside_fluid
 ) {
-  at::Backend bckd = flags.getBackend();
-  at::ScalarType real = flags.getGridType();
-  
-  T b =  getType(bckd, at::kInt).scalarTensor(ibatch);
-  if (!flags.isFluid(i, j, k, ibatch)) {
-    // Don't advect solid geometry!
-    return src(i, j, k, ibatch);
-  }
-  
-  const T pos = getType(bckd, real).zeros({3});
-  
-  pos[0] = i + 0.5;
-  pos[1] = j + 0.5;
-  pos[2] = k + 0.5;
-  
-  T displacement = getType(bckd, real).zeros({3});
-  displacement = vel.getCentered(i, j, k, ibatch) * (-dt);
 
+  int bsz = flags.size(0);
+  int d = flags.size(2);
+  int h = flags.size(3);
+  int w = flags.size(4);
+
+  T ret = zeros_like(src);
+  T maskSolid = flags.ne(TypeFluid);
+  T maskFluid = flags.eq(TypeFluid);
+
+  AT_ASSERT(maskSolid.equal(1-maskFluid), "Masks are not complementary!");
+  // Don't advect solid geometry. 
+  ret.masked_scatter_(maskSolid, src.masked_select(maskSolid));
+  
+  T pos = infer_type(src).zeros({bsz, 3, d, h, w});
+ 
+  pos.select(1,0) = i + 0.5;
+  pos.select(1,1) = j + 0.5;
+  pos.select(1,2) = k + 0.5;
+
+  T displacement = zeros_like(pos);
+  
+  // getCentered already eliminates border cells, no need to perform a masked select.
+  displacement.masked_scatter_(maskBorder, fluid::ten::getCentered(vel));
+  displacement.mul_(dt);
+ 
   // Calculate a line trace from pos along displacement.
   // NOTE: this is expensive (MUCH more expensive than Manta's routines), but
   // can avoid some artifacts which would occur sampling into Geometry.
-  T back_pos = getType(bckd, real).zeros({3});
-  calcLineTrace(pos, displacement, flags, b, &back_pos, line_trace);
-
+  
+  T back_pos;
+  calcLineTrace(pos, displacement, flags, back_pos, line_trace);
+  
   // Finally, sample the field at this back position.
   if (!sample_outside_fluid) {
-    return src.getInterpolatedWithFluidHi(flags, back_pos, order_space, b);
+    ret.masked_scatter_(maskFluid,
+         fluid::ten::interpolWithFluid(src, flags, back_pos).masked_select(maskFluid));
   } else {
-    return src.getInterpolatedHi(back_pos, order_space, b);
+    ret.masked_scatter_(maskFluid,
+         fluid::ten::interpol(src, back_pos).masked_select(maskFluid));
   }
+  return ret;
 }
 
-// This is the same kernel as the previous FluidNet Euler kernel, except it saves the
-// particle trace position. This is used for FluidNet maccormack routine (it does
-// a local search around these positions in clamp routine).
-T SemiLagrangeEulerFluidNetSavePos
-(
-    FlagGrid& flags, 
-    MACGrid& vel, 
-    RealGrid& src,
-    float dt,
-    int order_space,
-    int32_t i, int32_t j, int32_t k, int32_t ibatch,
-    const bool line_trace,
-    const bool sample_outside_fluid,
-    VecGrid& pos
+T SemiLagrangeEulerFluidNetSavePos 
+( 
+  T& flags, T& vel, T& src, T& maskBorder, 
+  float dt, float order_space, 
+  T& i, T& j, T& k, 
+  const bool line_trace, 
+  const bool sample_outside_fluid, 
+  T& pos 
 ) {
-  at::Backend bckd = flags.getBackend();
-  at::ScalarType real = flags.getGridType();
+
+  int bsz = flags.size(0);
+  int d = flags.size(2);
+  int h = flags.size(3);
+  int w = flags.size(4);
+  bool is3D = (d > 1);
+
+  T ret = zeros_like(src);
+  T maskSolid = flags.ne(TypeFluid);
+  T maskFluid = flags.eq(TypeFluid);
+  AT_ASSERT(maskSolid.equal(1-maskFluid), "Masks are not complementary!");
   
-  T b =  getType(bckd, at::kInt).scalarTensor(ibatch);
+  T start_pos = infer_type(src).zeros({bsz, 3, d, h, w});
+ 
+  start_pos.select(1,0) = i + 0.5;
+  start_pos.select(1,1) = j + 0.5;
+  start_pos.select(1,2) = k + 0.5;
 
-  const T start_pos = getType(bckd, real).zeros({3});
+  // Don't advect solid geometry.
+  pos.masked_scatter_(maskSolid, start_pos.masked_select(maskSolid)); 
+  ret.masked_scatter_(maskSolid, src.masked_select(maskSolid));
 
-  start_pos[0] = i + 0.5;
-  start_pos[1] = j + 0.5;
-  start_pos[2] = k + 0.5;
-
-  if (!flags.isFluid(i, j, k, ibatch)) {
-    // Don't advect solid geometry!
-    pos.set(i, j, k, ibatch, start_pos);
-    return src(i, j, k, ibatch);
-  }
-
-  T displacement = getType(bckd, real).zeros({3});
-  displacement = vel.getCentered(i, j, k, ibatch) * (-dt);
-
+  T displacement = zeros_like(pos);
+  
+  // getCentered already eliminates border cells, no need to perform a masked select.
+  displacement.masked_scatter_(maskBorder, fluid::ten::getCentered(vel));
+  displacement.mul_(dt);
+ 
   // Calculate a line trace from pos along displacement.
   // NOTE: this is expensive (MUCH more expensive than Manta's routines), but
   // can avoid some artifacts which would occur sampling into Geometry.
-  T back_pos = getType(bckd, real).zeros({3});
-  calcLineTrace(start_pos, displacement, flags, b, &back_pos, line_trace);
-  pos.set(i, j, k, ibatch, back_pos);
+  T back_pos;
+  calcLineTrace(start_pos, displacement, flags, back_pos, line_trace);
 
+  pos.select(1,0).masked_scatter_(maskFluid.squeeze(1) , back_pos.select(1,0).masked_select(maskFluid.squeeze(1))); 
+  pos.select(1,1).masked_scatter_(maskFluid.squeeze(1), back_pos.select(1,1).masked_select(maskFluid.squeeze(1))); 
+  if (is3D) {
+    pos.select(1,2).masked_scatter_(maskFluid.squeeze(1), back_pos.select(1,2).masked_select(maskFluid.squeeze(1))); 
+  }
   // Finally, sample the field at this back position.
   if (!sample_outside_fluid) {
-    return src.getInterpolatedWithFluidHi(flags, back_pos, order_space, b);
+    ret.masked_scatter_(maskFluid,
+         fluid::ten::interpolWithFluid(src, flags, back_pos).masked_select(maskFluid));
   } else {
-    return src.getInterpolatedHi(back_pos, order_space, b);
+    T interp = fluid::ten::interpol(src, back_pos).squeeze(1);
+    ret.squeeze(1).masked_scatter_(maskFluid.squeeze(1),
+         interp.masked_select(maskFluid.squeeze(1)));
   }
+  return ret;
 }
 
 T MacCormackCorrect
 (
-    FlagGrid& flags,
-    const RealGrid& old,
-    const RealGrid& fwd,
-    const RealGrid& bwd,
-    const float strength,
-    bool is_levelset,
-    int32_t i, int32_t j, int32_t k, int32_t b
-) {
-  at::Backend bckd = flags.getBackend();
-  at::ScalarType real = flags.getGridType();
+  T& flags, const T& old,
+  const T& fwd, const T& bwd,
+  const float strength,
+  bool is_levelset
+)
+{
+  T dst = fwd.clone();
+  T maskFluid = (flags.eq(TypeFluid));
   
-  T dst = fwd(i, j, k, b);
+  dst.masked_scatter_(maskFluid,
+    (dst + strength * 0.5 * (old - bwd)).masked_select(maskFluid));
 
-  if (flags.isFluid(i, j, k, b)) {
-    // Only correct inside fluid region.
-    dst += strength * 0.5 * (old(i, j, k, b) - bwd(i, j, k, b));
-  }
   return dst;
 }
 
-// FluidNet clamp routine. It is a search around a single input
+// Clamp routines. It is a search around a the input position
 // position for min and max values. If no valid values are found, then
-// false is returned (indicating that a clamp shouldn't be performed) otherwise
-// true is returned (and the clamp min and max bounds are set).
-bool getClampBounds
+// false (in the mask) is returned (indicating that a clamp shouldn't be performed)
+// otherwise true is returned (and the clamp min and max bounds are set). 
+
+T getClampBounds
 (
-    RealGrid src,
-    T pos,
-    const int32_t ibatch,
-    FlagGrid flags,
-    const bool sample_outside_fluid,
-    T* clamp_min,
-    T* clamp_max
-) {
-  at::Backend bckd = flags.getBackend();
-  at::ScalarType real = flags.getGridType();
+  const T& src, const T& pos, const T& flags,
+  const bool sample_outside,
+  T& clamp_min, T& clamp_max
+)
+{
+  int bsz = flags.size(0);
+  int d   = flags.size(2) ;
+  int h   = flags.size(3);
+  int w   = flags.size(4);
 
-  T b =  getType(bckd, at::kInt).scalarTensor(ibatch);
+  T minv = full_like(flags.toType(at::kFloat), INFINITY).squeeze(1);
+  T maxv = full_like(flags.toType(at::kFloat), -INFINITY).squeeze(1);
+  
+  T i0 = pos.select(1,0).clamp(0, flags.size(4) - 1).toType(at::kLong);
+  T j0 = pos.select(1,1).clamp(0, flags.size(3) - 1).toType(at::kLong);
+  T k0 = (src.size(1) > 1) ? pos.select(1,2).clamp(0, flags.size(2) - 1)
+       .toType(at::kLong) : zeros_like(i0);
+
+  T idx_b = infer_type(i0).arange(0, bsz).view({bsz,1,1,1});
+  idx_b = idx_b.expand({bsz,d,h,w});
  
-  T minv = at::infer_type(pos).scalarTensor(std::numeric_limits<float>::infinity());
-  T maxv = at::infer_type(pos).scalarTensor(-std::numeric_limits<float>::infinity());
+  // We have to look all neighboors.
 
-  const T indx0 = getType(bckd, at::kInt).zeros({3});
+  T maskOutsideBounds = zeros_like(flags);
+  T ncells = zeros_like(flags).squeeze(1);
 
-  // clamp forward lookup to grid 
-  indx0[0] = clamp(pos[0], 0, flags.xsize() - 1);
-  indx0[1] = clamp(pos[1], 0, flags.ysize() - 1);
-  indx0[2] =
-    src.is_3d() ? clamp(pos[2], 0, flags.zsize() - 1)
-    : getType(bckd, at::kInt).scalarTensor(0);
+  T i = zeros_like(i0);
+  T j = zeros_like(j0);
+  T k = zeros_like(k0);
+  T zero = zeros_like(i0);
+ 
+  for (int32_t dk = -1; dk <= 1; dk++) {
+    for (int32_t dj = -1; dj <= 1; dj++) {
+      for (int32_t di = -1; di<= 1; di++) {
+        maskOutsideBounds = (( (k0 + dk) < 0).__or__( (k0 + dk) >= flags.size(2)).__or__
+                             ( (j0 + dj) < 0).__or__( (j0 + dj) >= flags.size(3)).__or__
+                             ( (i0 + di) < 0).__or__( (i0 + di) >= flags.size(4)));
 
-  // Some modification here. Instead of looking just to the RHS, we will search
-  // all neighbors within a region.  This is more expensive but better handles
-  // border cases.
-  int32_t ncells = 0;
-  for (T k = indx0[2] - 1; toBool(k <= indx0[2] + 1); k += 1) {
-    for (T j = indx0[1] - 1; toBool(j <= indx0[1] + 1); j += 1) {
-      for (T i = indx0[0] - 1; toBool(i <= indx0[0] + 1); i +=  1) {
-        if (toBool((k < 0).__or__(k >= flags.zsize()).__or__
-           (j < 0).__or__(j >= flags.ysize()).__or__
-           (i < 0).__or__(i >= flags.xsize())) ) {
-          // Outside bounds.
-          continue;
-        } else if (sample_outside_fluid || flags.isFluid(i, j, k, b)) {
-          // Either we don't care about clamping to values inside the fluid, or
-          // this is a fluid cell...
-          getMinMax(minv, maxv, src(i, j, k, b));
-          ncells++;
-        }
+        i = zero.where( (i0 + di < 0), i0);
+        i = zero.where( (i0 + di >= flags.size(4)), i0);
+        j = zero.where( (j0 + dj < 0), j0);
+        j = zero.where( (j0 + dj >= flags.size(3)), j0);
+        k = zero.where( (k0 + dk < 0), k0);
+        k = zero.where( (k0 + dk >= flags.size(2)), k0);
+ 
+        T flags_ijk = flags.index({idx_b, zero, k, j, i});
+        T src_ijk = src.index({idx_b, zero, k, j, i});
+        T maskSample = maskOutsideBounds.__and__(flags_ijk.eq(TypeFluid).__or__(sample_outside));
+
+        minv.masked_scatter_(maskSample, at::max(minv, src_ijk).masked_select(maskSample));
+        maxv.masked_scatter_(maskSample, at::min(maxv, src_ijk).masked_select(maskSample));
+        ncells.masked_scatter_(maskSample, (ncells + 1).masked_select(maskSample));
       }
     }
   }
+  T ret = zeros_like(flags).toType(at::kByte);
+  ncells = ncells.unsqueeze(1);
+  clamp_min.masked_scatter_( (ncells >= 1) , minv.unsqueeze(1).masked_select( ncells >= 1));
+  clamp_max.masked_scatter_( (ncells >= 1) , maxv.unsqueeze(1).masked_select( ncells >= 1));
+  ret.masked_fill_( (ncells >= 1), 1);
 
-  if (ncells < 1) {
-    // Only a single fluid cell found. Return false to indicate that a clamp
-    // shouldn't be performed.
-    return false;
-  } else {
-    *clamp_min = minv;
-    *clamp_max = maxv;
-    return true;
-  }
+  return ret;
 }
 
-T MacCormackClampFluidNet
-(
-    FlagGrid& flags,
-    MACGrid& vel,
-    const RealGrid& dst,
-    const RealGrid& src,
-    const RealGrid& fwd,
-    float dt,
-    const VecGrid& fwd_pos,
-    const VecGrid& bwd_pos,
-    const bool sample_outside_fluid,
-    int32_t i, int32_t j, int32_t k, int32_t b
+T MacCormackClampFluidNet(
+  T& flags, T& vel,
+  const T& dst, const T& src,
+  const T& fwd, const T& fwd_pos,
+  const T& bwd_pos, const bool sample_outside 
 ) {
-  at::Backend bckd = flags.getBackend();
-  at::ScalarType real = flags.getGridType();
 
-   // Calculate the clamp bounds.
-  T clamp_min = at::getType(bckd, real).scalarTensor(std::numeric_limits<float>::infinity());
-  T clamp_max = at::getType(bckd, real).scalarTensor(-std::numeric_limits<float>::infinity());
-
+  int bsz = flags.size(0);
+  int d = flags.size(2);
+  int h = flags.size(3);
+  int w = flags.size(4);
+  bool is3D = (d > 1);
+  // Calculate the clamp bounds.
+  T clamp_min = full_like(src, INFINITY);
+  T clamp_max = full_like(src, -INFINITY);
+  
   // Calculate the clamp bounds around the forward position.
-  T pos = fwd_pos(i, j, k, b);
-  const bool do_clamp_fwd = getClampBounds(
-      src, pos, b, flags, sample_outside_fluid, &clamp_min, &clamp_max);
-
-  // FluidNet: According to "An unconditionally stable maccormack method"
-  // only a forward search is required.
-
-  T dval;
-  if (!do_clamp_fwd) {
-    // If the cell is surrounded by fluid neighbors either in the fwd or
-    // backward directions, then we need to revert to an euler step.
-    dval = fwd(i, j, k, b);
-  } else {
-    // We found valid values with which to clamp the maccormack corrected
-    // quantity. Apply this clamp.
-    dval = clamp(dst(i, j, k, b), at::Scalar(clamp_min), at::Scalar(clamp_max));
+  T pos = infer_type(fwd_pos).zeros({bsz, 3, d, h, w});
+  pos.select(1,0) = fwd_pos.select(1,0);
+  pos.select(1,1) = fwd_pos.select(1,1);
+  if (is3D) {
+    pos.select(1,2) = fwd_pos.select(1,2);
   }
-
-  return dval;
+  
+  T do_clamp_fwd = getClampBounds(
+    src, pos, flags, sample_outside, clamp_min, clamp_max);
+  // According to Selle et al. (An Unconditionally Stable MacCormack Method) only
+  // a forward search is necessary.
+ 
+  // do_clamp_fwd = false: If the cell is surrounded by fluid neighbors either 
+  // in the fwd or backward directions, then we need to revert to an euler step.
+  // Otherwise, we found valid values with which to clamp the maccormack corrected
+  // quantity. Apply this clamp.
+ 
+  return fwd.where(do_clamp_fwd.ne(1), at::max( at::min(dst, clamp_max), clamp_min));
 }
-
-// Advect scalar field 'p' by the input vel field 'u'.
-// 
-// @input dt - timestep (seconds).
-// @input s - input scalar field to advect
-// @input U - input vel field (size(2) can be 2 or 3, indicating 2D / 3D)
-// @input flags - input occupancy grid
-// @input method - OPTIONAL - "eulerFluidNet", "maccormackFluidNet"
-// @input inplace - Perform inplace advection or return sDst
-// @input sDst - If inplace is false this will be the returned scalar field. Otherwise advection will be performed in-place.
-// @param sampleOutsideFluid - OPTIONAL - For density advection we do not want
-// to advect values inside non-fluid cells and so this should be set to false.
-// For other quantities (like temperature), this should be true.
-// @param maccormackStrength - OPTIONAL - (default 0.75) A strength parameter
-// will make the advection eularian (with values interpolating in between). A
-// value of 1 (which implements the update from An Unconditionally Stable
-// MaCormack Method) tends to add too much high-frequency detail
-// @param boundaryWidth - OPTIONAL - boundary width. (default 1)
 
 void advectScalar
-(
-    float dt,
-    T& tensor_flags,
-    T& tensor_u,
-    T& tensor_s,
-    const bool inplace,
-    T& tensor_s_dst,
-    const std::string method_str,
-    const int32_t boundary_width,
-    const bool sample_outside_fluid,
-    const float maccormack_strength
-) {
-  // We treat 2D advection as 3D (with depth = 1) and
-  // no 'w' component for velocity.
+( 
+  float dt, T& src, T& U, T& flags, const std::string method_str, T& s_dst,
+  const bool sample_outside_fluid, const float maccormack_strength, int bnd
+)
+{
+  // Check sizes
+  AT_ASSERT(src.dim() == 5 && U.dim() == 5 && flags.dim() == 5,
+    "Dimension mismatch");
+  AT_ASSERT(flags.size(1) == 1, "flags is not scalar");
+  int bsz = flags.size(0);
+  int d = flags.size(2);
+  int h = flags.size(3);
+  int w = flags.size(4);
+
+  bool is3D = (U.size(1) == 3);
+  if (!is3D) {
+     AT_ASSERT(d == 1, "2D velocity field but zdepth > 1");
+     AT_ASSERT(U.size(1) == 2, "2D velocity field must have only 2 channels");
+  }
+  AT_ASSERT((U.size(0) == bsz && U.size(2) == d &&
+             U.size(3) == h && U.size(4) == w), "Size mismatch");
+  AT_ASSERT(U.is_contiguous() && flags.is_contiguous() &&
+            src.is_contiguous(), "Input is not contiguous");
+  AT_ASSERT(s_dst.dim() == 5, "Size mismatch");
+  AT_ASSERT(s_dst.is_contiguous(), "Input is not contiguous");
+  AT_ASSERT(s_dst.is_same_size(src) , "Size mismatch");
+
+  T fwd = zeros_like(src);
+  T bwd = zeros_like(src);
+  T fwd_pos = zeros_like(U);
+  T bwd_pos = zeros_like(U);
+
+  AdvectMethod method = StringToAdvectMethod(method_str);
+  const bool is_levelset = false;
+  const int order_space = 1;
+  const bool line_trace = true;
+
+  T pos_corrected = infer_type(src).zeros({bsz, 3, d, h, w});
+
+  T cur_dst = (method == ADVECT_MACCORMACK_FLUIDNET) ? fwd : s_dst;
+  
+  T idx_x = infer_type(flags).arange(0, w).view({1,w}).expand({bsz, d, h, w}).toType(at::kLong);
+  T idx_y = infer_type(idx_x).arange(0, h).view({1,h,1}).expand({bsz, d, h, w});
+  T idx_z = zeros_like(idx_x);
+  if (is3D) {
+     idx_z = infer_type(idx_x).arange(0, d).view({1,d,1,1}).expand({bsz, d, h, w});
+  }
+
+  T maskBorder = (idx_x < bnd).__or__
+                 (idx_x > w - 1 - bnd).__or__
+                 (idx_y < bnd).__or__
+                 (idx_y > h - 1 - bnd);
+  if (is3D) {
+      maskBorder = maskBorder.__or__(idx_z < bnd).__or__
+                                    (idx_z > d - 1 - bnd);
+  }
+  maskBorder = maskBorder.unsqueeze(1);
+ 
+  // Manta zeros stuff on the border.
+  cur_dst.masked_fill_(maskBorder, 0);
+  pos_corrected.select(1,0) = idx_x + 0.5;
+  pos_corrected.select(1,1) = idx_y + 0.5;
+  pos_corrected.select(1,2) = idx_z + 0.5;
+
+  fwd_pos.select(1,0).masked_scatter_(maskBorder.squeeze(1), pos_corrected.select(1,0).masked_select(maskBorder.squeeze(1)));
+  fwd_pos.select(1,1).masked_scatter_(maskBorder.squeeze(1), pos_corrected.select(1,1).masked_select(maskBorder.squeeze(1)));
+  if (is3D) {
+    fwd_pos.select(1,2).masked_scatter_(maskBorder.squeeze(1), pos_corrected.select(1,2).masked_select(maskBorder.squeeze(1)));
+  }
+ 
+  // Forward step.
+  T val;
+  if (method == ADVECT_EULER_FLUIDNET) {
+    val = SemiLagrangeEulerFluidNet(flags, U, src, maskBorder, dt, order_space,
+            idx_x, idx_y, idx_z, line_trace, sample_outside_fluid);
+  } else if (method == ADVECT_MACCORMACK_FLUIDNET) {
+    val = SemiLagrangeEulerFluidNetSavePos(flags, U, src, maskBorder, dt, order_space,
+            idx_x, idx_y, idx_z, line_trace, sample_outside_fluid, fwd_pos);
+  } else {
+    AT_ERROR("Advection method not supported!");
+  }
+ 
+  cur_dst.masked_scatter_(maskBorder.eq(0), val.masked_select(maskBorder.eq(0)));
+  
+  if (method != ADVECT_MACCORMACK_FLUIDNET) {
+    // We're done. The forward Euler step is already in the output array.
+  } else {
+    // Otherwise we need to do the backwards step (which is a SemiLagrange
+    // step on the forward data - hence we need to finish the above ops
+    // before moving on).
+ 
+    // Manta zeros stuff on the border.
+    bwd.masked_fill_(maskBorder, 0);
+    pos_corrected.select(1,0) = idx_x + 0.5;
+    pos_corrected.select(1,1) = idx_y + 0.5;
+    pos_corrected.select(1,2) = idx_z + 0.5;
+
+    bwd_pos.masked_scatter_(maskBorder, pos_corrected.masked_select(maskBorder));
+    
+    // Backwards step
+    if (method == ADVECT_MACCORMACK_FLUIDNET) {
+      bwd.masked_scatter_(maskBorder.ne(1),
+          SemiLagrangeEulerFluidNetSavePos(flags, U, fwd, maskBorder, -dt, order_space,
+          idx_x, idx_y, idx_z, line_trace, sample_outside_fluid, bwd_pos)
+          .masked_select(maskBorder.ne(1)));       
+    }
+    // Now compute the correction.
+    s_dst = MacCormackCorrect(flags, src, fwd, bwd, maccormack_strength, is_levelset);
    
-  // Check arguments
-  AT_ASSERT(tensor_s.dim() == 5 && tensor_u.dim() == 5 && tensor_flags.dim() == 5,
-             "Dimension mismatch");
-  AT_ASSERT(tensor_flags.size(1) == 1, "flags is not scalar");
-  int bsz = tensor_flags.size(0);
-  int d = tensor_flags.size(2);
-  int h = tensor_flags.size(3);
-  int w = tensor_flags.size(4);
-  AT_ASSERT(tensor_s.is_same_size(tensor_flags), "size mismatch");
-
-  bool is_3d = (tensor_u.size(1) == 3);
-  if (!is_3d) {
-     AT_ASSERT(d == 1, "2D velocity field but zdepth > 1");
-     AT_ASSERT(tensor_u.size(1) == 2, "2D velocity field must have only 2 channels");
-  }
-  AT_ASSERT((tensor_u.size(0) == bsz && tensor_u.size(2) == d &&
-             tensor_u.size(3) == h && tensor_u.size(4) == w), "Size mismatch");
-
-  AT_ASSERT(tensor_s.is_contiguous() && tensor_u.is_contiguous() &&
-            tensor_flags.is_contiguous(), "Input is not contiguous");
-
-  AT_ASSERT(tensor_s_dst.dim() == 5, "Size mismatch");
-  AT_ASSERT(tensor_s_dst.is_contiguous(), "Input is not contiguous");
-  AT_ASSERT(tensor_s_dst.is_same_size(tensor_s), "Size mismatch");
-  
-  T tensor_fwd     = infer_type(tensor_flags).zeros({bsz, 1, d, h, w});  
-  T tensor_bwd     = infer_type(tensor_flags).zeros({bsz, 1, d, h, w}); 
-  T tensor_fwd_pos = infer_type(tensor_flags).zeros({bsz, tensor_u.size(1), d, h, w});
-  T tensor_bwd_pos = infer_type(tensor_flags).zeros({bsz, tensor_u.size(1), d, h, w}); 
-  
-  FlagGrid flags(tensor_flags, is_3d);
-  MACGrid vel(tensor_u, is_3d);
-  RealGrid src(tensor_s, is_3d);
-  RealGrid dst(tensor_s_dst, is_3d);
-
-  // The maccormack method also needs fwd and bwd temporary arrays.
-  RealGrid fwd(tensor_fwd, is_3d);
-  RealGrid bwd(tensor_bwd, is_3d); 
-  VecGrid fwd_pos(tensor_fwd_pos, is_3d);
-  VecGrid bwd_pos(tensor_bwd_pos, is_3d);
-
-  AdvectMethod method = StringToAdvectMethod(method_str);
-
-  const bool is_levelset = false;  // We never advect them.
-  const int order_space = 1;
-  // A full line trace along every ray is expensive but correct (applies to our
-  // methods only).
-  const bool line_trace = true;
-
-  const int32_t nbatch = flags.nbatch();
-  const int32_t xsize = flags.xsize();
-  const int32_t ysize = flags.ysize();
-  const int32_t zsize = flags.zsize();
-
-  at::Backend bckd = flags.getBackend();
-  at::ScalarType real = flags.getGridType();
-  const T posCorrected = getType(bckd, real).zeros({3});
-
-  for (int32_t b = 0; b < nbatch; b++) {
-    const int32_t bnd = boundary_width;
-    int32_t k, j, i;
-    RealGrid* cur_dst = (method == ADVECT_MACCORMACK_FLUIDNET) ? &fwd : &dst;
-
-    for (k = 0; k < zsize; k++) {
-      for (j = 0; j < ysize; j++) {
-        for (i = 0; i < xsize; i++) {
-           
-            if (i < bnd || i > xsize - 1 - bnd ||
-              j < bnd || j > ysize - 1 - bnd ||
-              (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
-            // Manta zeros stuff on the border.
-            (*cur_dst)(i, j, k, b) = 0;
-            posCorrected[0] = i + 0.5;
-            posCorrected[1] = j + 0.5;
-            posCorrected[2] = k + 0.5;
-            fwd_pos.set(i, j, k, b, posCorrected);
-            continue;
-          }
-
-          // Forward step.
-          T val;
-          if (method == ADVECT_EULER_FLUIDNET) {
-            val = SemiLagrangeEulerFluidNet(
-                flags, vel, src, dt, order_space, i, j, k, b, line_trace,
-                sample_outside_fluid);
-          } else if (method == ADVECT_MACCORMACK_FLUIDNET) {
-            val = SemiLagrangeEulerFluidNetSavePos(
-                flags, vel, src, dt, order_space, i, j, k, b, line_trace,
-                sample_outside_fluid, fwd_pos);
-          } else {
-            AT_ERROR("Advection method not supported!");
-          }
-
-          (*cur_dst)(i, j, k, b) = val;
-        }
-      }
+    // Now perform the clamping.
+    if (method == ADVECT_MACCORMACK_FLUIDNET) {
+      s_dst.masked_scatter_(maskBorder.ne(1),
+          MacCormackClampFluidNet(flags, U, s_dst, src, fwd, fwd_pos, bwd_pos,
+          sample_outside_fluid).masked_select(maskBorder.ne(1))); 
     }
-
-    if (method != ADVECT_MACCORMACK_FLUIDNET) {
-      // We're done. The forward Euler step is already in the output array.
-    } else {
-      // Otherwise we need to do the backwards step (which is a SemiLagrange
-      // step on the forward data - hence we needed to finish the above loops
-      // beforemoving on).
-      for (k = 0; k < zsize; k++) { 
-        for (j = 0; j < ysize; j++) { 
-          for (i = 0; i < xsize; i++) {
-            if (i < bnd || i > xsize - 1 - bnd ||
-                j < bnd || j > ysize - 1 - bnd ||
-                (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
-              bwd(i, j, k, b) = 0;
-              posCorrected[0] = i + 0.5;
-              posCorrected[1] = j + 0.5;
-              posCorrected[2] = k + 0.5;
-              bwd_pos.set(i, j, k, b, posCorrected);
-              continue; 
-            } 
-
-            // Backwards step.
-            if (method == ADVECT_MACCORMACK_FLUIDNET) {
-              bwd(i, j, k, b) = SemiLagrangeEulerFluidNetSavePos(
-                  flags, vel, fwd, -dt,  order_space, i, j, k, b, line_trace,
-                  sample_outside_fluid, bwd_pos);
-            }
-          }
-        }
-      }
-
-      // Now compute the correction.
-      for (k = 0; k < zsize; k++) { 
-        for (j = 0; j < ysize; j++) { 
-          for (i = 0; i < xsize; i++) { 
-            dst(i, j, k, b) = MacCormackCorrect(
-                flags, src, fwd, bwd, maccormack_strength, is_levelset,
-                i, j, k, b);
-          }
-        }
-      }
-
-      // Now perform clamping.
-      for (k = 0; k < zsize; k++) { 
-        for (j = 0; j < ysize; j++) { 
-          for (i = 0; i < xsize; i++) {
-            if (i < bnd || i > xsize - 1 - bnd ||
-                j < bnd || j > ysize - 1 - bnd ||
-                (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
-              continue;
-            }
-            if (method == ADVECT_MACCORMACK_FLUIDNET) {
-              dst(i, j, k, b) = MacCormackClampFluidNet(
-                  flags, vel, dst, src, fwd, dt, fwd_pos, bwd_pos,
-                  sample_outside_fluid, i, j, k, b);  
-            }
-          }
-        }
-      }
-    }
-  }
-
-  if (inplace) {
-    tensor_s.copy_(tensor_s_dst);
-  }
-}
-
-// *****************************************************************************
-// Advect Velocity
-// *****************************************************************************
-
-T SemiLagrangeEulerFluidNetMAC(
-    FlagGrid& flags,
-    MACGrid& vel,
-    MACGrid& src,
-    float dt,
-    int order_space,
-    const bool line_trace,
-    int32_t i, int32_t j, int32_t k, int32_t b) {
-  if (!flags.isFluid(i, j, k, b)) {
-    // Don't advect solid geometry!
-    return src(i, j, k, b);
-  }
-  at::Backend bckd = flags.getBackend();
-  at::ScalarType real = flags.getGridType();
-
-  T ibatch =  getType(bckd, at::kInt).scalarTensor(b);
-  T nchan = getType(bckd, at::kInt).arange(3);
-
-  // Get correct velocity at MAC position.
-  // No need to shift xpos etc. as lookup field is also shifted.
-
-  const T pos = getType(bckd, real).zeros({3});
-
-  pos[0] = i + 0.5;
-  pos[1] = j + 0.5;
-  pos[2] = k + 0.5;
-
-  // FluidNet: We floatly want to clamp to the SMALLEST of the steps in each
-  // dimension, however this is OK for now (because doing so would expensive)...
-  T xpos = getType(bckd, real).zeros({3});
-  calcLineTrace(pos, vel.getAtMACX(i, j, k, b) * (-dt), flags, ibatch, &xpos,
-                line_trace);
-  const T vx = src.getInterpolatedComponentHi(xpos, order_space, nchan[0], ibatch);
-
-  T ypos = getType(bckd, real).zeros({3});
-  calcLineTrace(pos, vel.getAtMACY(i, j, k, b) * (-dt), flags, ibatch, &ypos,
-                line_trace);
-  const T vy = src.getInterpolatedComponentHi(ypos, order_space, nchan[1], ibatch);
-
-  T vz = getType(bckd, real).scalarTensor(0);
-  if (vel.is_3d()) {
-    T zpos = getType(bckd, real).zeros({3});
-    calcLineTrace(pos, vel.getAtMACZ(i, j, k, b) * (-dt), flags, ibatch, &zpos,
-                  line_trace);
-    vz = src.getInterpolatedComponentHi(zpos, order_space, nchan[2], ibatch);
-  } else {
-    // vz = 0 (already at initialization)
-  }
-  
-  T ret = getType(bckd, real).zeros({3});
-  ret[0] = vx;
-  ret[1] = vy;
-  ret[2] = vz;
-
-  return ret;
-}
-
-T SemiLagrangeMAC(
-    FlagGrid& flags,
-    MACGrid& vel,
-    MACGrid& src,
-    float dt,
-    int order_space,
-    int32_t i, int32_t j, int32_t k, int32_t b) {
-  at::Backend bckd = flags.getBackend();
-  at::ScalarType real = flags.getGridType();
-
-  T ibatch =  getType(bckd, at::kInt).scalarTensor(b);
-  T nchan = getType(bckd, at::kInt).arange(3);
-  
-  // Get correct velocity at MAC position.
-  // No need to shift xpos etc. as lookup field is also shifted.
-
-  const T pos = getType(bckd, real).zeros({3});
-
-  pos[0] = i + 0.5;
-  pos[1] = j + 0.5;
-  pos[2] = k + 0.5;
-
-  T xpos = pos - vel.getAtMACX(i, j, k, b) * dt;
-  const T vx = src.getInterpolatedComponentHi(xpos, order_space, nchan[0], ibatch);
-
-  T ypos = pos - vel.getAtMACY(i, j, k, b) * dt;
-  const T vy = src.getInterpolatedComponentHi(ypos, order_space, nchan[1], ibatch);
-
-  T vz = getType(bckd, real).scalarTensor(0);
-  if (vel.is_3d()) {
-    T zpos = pos - vel.getAtMACZ(i, j, k, b) * dt;
-    vz = src.getInterpolatedComponentHi(zpos, order_space, nchan, ibatch);
-  } else {
-    // vz = 0 (already at initialization);
-  }
-  
-  T ret = getType(bckd, real).zeros({3});
-  ret[0] = vx;
-  ret[1] = vy;
-  ret[2] = vz;
-
-  return ret;
-}
-
-T MacCormackCorrectMAC(
-    FlagGrid& flags,
-    const MACGrid& old,
-    const MACGrid& fwd,
-    const MACGrid& bwd,
-    const float strength,
-    int32_t i, int32_t j, int32_t k, int32_t b) {
-  at::Backend bckd = flags.getBackend();
-  at::ScalarType real = flags.getGridType();
-
-  bool skip[3] = {false, false, false};
-
-  if (!flags.isFluid(i, j, k, b)) {
-    skip[0] = true;
-    skip[1] = true;
-    skip[2] = true;
-  }
-
-  // Note: in Manta code there's a isMAC boolean that is always true.
-  if ((i > 0) && (!flags.isFluid(i - 1, j, k, b))) {
-    skip[0] = true;
-  }
-  if ((j > 0) && (!flags.isFluid(i, j - 1, k, b))) {
-    skip[1] = true;
-  }
-  if (flags.is_3d()) {
-    if ((k > 0) && (!flags.isFluid(i, j, k - 1, b))) {
-      skip[2] = true;
-    }
-  }
-
-  T dst = getType(bckd, real).zeros({3});
-
-  const int32_t dim = flags.is_3d() ? 3 : 2;
-  for (int32_t c = 0; c < dim; ++c) {
-    if (skip[c]) {
-      dst[c] = fwd(i, j, k, c, b);
-    } else {
-      // perform actual correction with given strength.
-      dst[c] = fwd(i, j, k, c, b) + strength * 0.5 * (old(i, j, k, c, b) -
-                                                      bwd(i, j, k, c, b));
-    }
-  }
-
-  return dst;
-}
-
-template <int32_t chan>
-T doClampComponentMAC(
-    const T& gridSize,
-    T dst,
-    const MACGrid& orig,
-    T fwd, 
-    const T& pos, const T& vel,
-    int32_t b) {
-  at::Backend bckd = orig.getBackend();
-  at::ScalarType real = orig.getGridType();
-  
-  T c = getType(bckd, at::kInt).scalarTensor(chan);
-  T ibatch =  getType(bckd, at::kInt).scalarTensor(b);
-
-  T minv = at::infer_type(pos).scalarTensor(std::numeric_limits<float>::infinity());
-  T maxv = at::infer_type(pos).scalarTensor(-std::numeric_limits<float>::infinity());
-
-  // forward (and optionally) backward
-  T positions[2] = getType(bckd, at::kInt).zeros({2,3});
-  positions[0] = (pos - vel).toType(getType(bckd, at::kInt));
-  positions[1] = (pos + vel).toType(getType(bckd, at::kInt));
-
-  for (int32_t l = 0; l < 2; ++l) {
-    const T& curr_pos = positions[l];
-    const T indx0 = getType(bckd, at::kInt).zeros({3});
-    const T indx1 = getType(bckd, at::kInt).zeros({3});
-
-    // clamp forward lookup to grid 
-    indx0[0] = clamp(curr_pos[0], 0, at::Scalar(gridSize[0] - 1));
-    indx0[1] = clamp(curr_pos[1], 0, at::Scalar(gridSize[1] - 1));
-    indx0[2] = clamp(curr_pos[2], 0,
-                             (orig.is_3d() ? at::Scalar(gridSize[2] - 1) : at::Scalar(1)));
-    indx1[0] = indx0[0] + 1;
-    indx1[1] = indx0[1] + 1;
-    indx1[2] = (orig.is_3d() ? (indx0[2] + 1) : indx0[2]);
-    if (!orig.isInBounds(indx0, 0) ||
-        !orig.isInBounds(indx1, 0)) {
-      return fwd;
-    }
-
-    // find min/max around source pos
-    getMinMax(minv, maxv, orig(indx0[0], indx0[1], indx0[2], c, ibatch));
-    getMinMax(minv, maxv, orig(indx1[0], indx0[1], indx0[2], c, ibatch));
-    getMinMax(minv, maxv, orig(indx0[0], indx1[1], indx0[2], c, ibatch));
-    getMinMax(minv, maxv, orig(indx1[0], indx1[1], indx0[2], c, ibatch));
-
-    if (orig.is_3d()) {
-      getMinMax(minv, maxv, orig(indx0[0], indx0[1], indx1[2], c, ibatch));
-      getMinMax(minv, maxv, orig(indx1[0], indx0[1], indx1[2], c, ibatch));
-      getMinMax(minv, maxv, orig(indx0[0], indx1[1], indx1[2], c, ibatch));
-      getMinMax(minv, maxv, orig(indx1[0], indx1[1], indx1[2], c, ibatch));
-    }
-  }
-
-  dst = clamp(dst, at::Scalar(minv), at::Scalar(maxv));
-  return dst;
-}
-
-T MacCormackClampMAC(
-    FlagGrid& flags,
-    MACGrid& vel,
-    T dval,
-    const MACGrid& orig,
-    const MACGrid& fwd,
-    float dt,
-    int32_t i, int32_t j, int32_t k, int32_t b) {
-  at::Backend bckd = flags.getBackend();
-  at::ScalarType real = flags.getGridType();
-
-  T nchan = getType(bckd, at::kInt).arange(3);
-  // Get correct velocity at MAC position.
-  // No need to shift xpos etc. as lookup field is also shifted.
-
-  const T pos = getType(bckd, real).zeros({3});
-
-  pos[0] = i;
-  pos[1] = j;
-  pos[2] = k;
-  
-  T dfwd = fwd(i, j, k, b);
-  T gridUpper = flags.getSize() - 1;
-
-  dval[0] = doClampComponentMAC<0>(gridUpper, dval[0], orig, dfwd[0], pos,
-                                  vel.getAtMACX(i, j, k, b) * dt, b);
-  
-  dval[1] = doClampComponentMAC<1>(gridUpper, dval[1], orig, dfwd[1], pos,
-                                  vel.getAtMACY(i, j, k, b) * dt, b);
-  if (flags.is_3d()) {
-    dval[2] = doClampComponentMAC<2>(gridUpper, dval[2], orig, dfwd[2], pos,
-                                    vel.getAtMACZ(i, j, k, b) * dt, b);
-  } else {
-    dval[2] = 0;
-  }
-
-  // Note (from Manta): The MAC version currently does not check whether source 
-  // points were inside an obstacle! (unlike centered version) this would need
-  // to be done for each face separately to stay symmetric.
-  
-  return dval;
-}
-
-// Advect velocity field 'u' by itself and store in uDst.
-// 
-// @input dt - timestep (seconds).
-// @input U - input vel field (size(2) can be 2 or 3, indicating 2D / 3D)
-// @input flags - input occupancy grid
-// @input method - OPTIONAL - "eulerFluidNet", "maccormackFluidNet" (default)
-// @input inplace - If true, performs advection in place.
-// @input UDst - If inplace is true then this will be the returned
-// velocity field. Otherwise advection will be performed in-place.
-// @input maccormackStrength - OPTIONAL - (default 0.75) A strength parameter
-// will make the advection more 1st order (with values interpolating in
-// between). A value of 1 (which implements the update from "An Unconditionally
-// Stable MaCormack Method") tends to add too much high-frequency detail.
-// @input boundaryWidth - OPTIONAL - boundary width. (default 1)
-
-void advectVel
-(
-    float dt,
-    T& tensor_flags,
-    T& tensor_u,
-    const bool inplace,
-    T& tensor_u_dst,
-    const std::string method_str,
-    const int32_t boundary_width,
-    const float maccormack_strength
-) {
-  // We treat 2D advection as 3D (with depth = 1) and
-  // no 'w' component for velocity.
-
-  // Check arguments
-  AT_ASSERT(tensor_u.dim() == 5 && tensor_flags.dim() == 5, "Dimension mismatch");
-  AT_ASSERT(tensor_flags.size(1) == 1, "flags is not scalar");
-  int bsz = tensor_flags.size(0);
-  int d = tensor_flags.size(2);
-  int h = tensor_flags.size(3);
-  int w = tensor_flags.size(4);
-
-  bool is_3d = (tensor_u.size(1) == 3);
-  if (!is_3d) {
-     AT_ASSERT(d == 1, "2D velocity field but zdepth > 1");
-     AT_ASSERT(tensor_u.size(1) == 2, "2D velocity field must have only 2 channels");
-  }
-  AT_ASSERT((tensor_u.size(0) == bsz && tensor_u.size(2) == d &&
-             tensor_u.size(3) == h && tensor_u.size(4) == w), "Size mismatch");
-
-  AT_ASSERT(tensor_u.is_contiguous() && tensor_flags.is_contiguous(),
-            "Input is not contiguous");
-
-  AT_ASSERT(tensor_u_dst.dim() == 5, "Size mismatch");
-  AT_ASSERT(tensor_u_dst.is_contiguous(), "Input is not contiguous");
-  AT_ASSERT(tensor_u_dst.is_same_size(tensor_u), "Size mismatch");
-  
-  T tensor_fwd = infer_type(tensor_flags).zeros({bsz, tensor_u.size(1), d, h, w});
-  T tensor_bwd = infer_type(tensor_flags).zeros({bsz, tensor_u.size(1), d, h, w}); 
-
-  AdvectMethod method = StringToAdvectMethod(method_str);
-
-  const int order_space = 1;
-  // A full line trace along every ray is expensive but correct (applies to FluidNet
-  // methods only).
-  const bool line_trace = true;
-
-  FlagGrid flags(tensor_flags, is_3d);
-  MACGrid vel(tensor_u, is_3d);
-
-  // We always do self-advection, but we could point orig to another tensor.
-  MACGrid orig(tensor_u, is_3d);
-  MACGrid dst(tensor_u_dst, is_3d);
-
-  // The maccormack method also needs fwd and bwd temporary arrays.
-  MACGrid fwd(tensor_fwd, is_3d);
-  MACGrid bwd(tensor_bwd, is_3d);
-
-  const int32_t xsize = flags.xsize();
-  const int32_t ysize = flags.ysize();
-  const int32_t zsize = flags.zsize();
-  const int32_t nbatch = flags.nbatch();
-
-  at::Backend bckd = flags.getBackend();
-  at::ScalarType real = flags.getGridType();
-  const T posCorrected = getType(bckd, real).zeros({3});
-
-  for (int32_t b = 0; b < nbatch; b++) {
-    MACGrid* cur_dst = (method == ADVECT_MACCORMACK_FLUIDNET) ?
-                                  &fwd : &dst;
-    int32_t k, j, i;
-    const int32_t bnd = 1;
-    for (k = 0; k < zsize; k++) {
-      for (j = 0; j < ysize; j++) {
-        for (i = 0; i < xsize; i++) {
-          if (i < bnd || i > xsize - 1 - bnd ||
-              j < bnd || j > ysize - 1 - bnd ||
-              (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
-            // Manta zeros stuff on the border.
-            cur_dst->setSafe(i, j, k, b, posCorrected);
-            continue;
-          }
-
-          // Forward step.
-          T val;
-          if (method == ADVECT_EULER_FLUIDNET ||
-              method == ADVECT_MACCORMACK_FLUIDNET) {
-            val = SemiLagrangeEulerFluidNetMAC(
-                flags, vel, orig, dt, order_space, line_trace, i, j, k, b);
-          }
-          else {
-          std::cout << "No defined method for MAC advection" << std::endl;
-          }
-          cur_dst->setSafe(i, j, k, b, val);  // Store in the output array
-        }
-      }
-    }
-
-    if (method != ADVECT_MACCORMACK_FLUIDNET) {
-      // We're done. The forward Euler step is already in the output array.
-    } else {
-      // Otherwise we need to do the backwards step (which is a SemiLagrange
-      // step on the forward data - hence we needed to finish the above loops
-      // before moving on).
-      for (k = 0; k < zsize; k++) { 
-        for (j = 0; j < ysize; j++) { 
-          for (i = 0; i < xsize; i++) {
-            if (i < bnd || i > xsize - 1 - bnd ||
-                j < bnd || j > ysize - 1 - bnd ||
-                (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
-              bwd.setSafe(i, j, k, b, posCorrected);
-              continue; 
-            } 
-
-            // Backwards step.
-            if (method == ADVECT_MACCORMACK_FLUIDNET) {
-              bwd.setSafe(i, j, k, b, SemiLagrangeEulerFluidNetMAC(
-                  flags, vel, fwd, -dt, order_space, line_trace, i, j, k, b));
-            }
-          }
-        }
-      }
-
-      // Now compute the correction.
-      for (k = 0; k < zsize; k++) { 
-        for (j = 0; j < ysize; j++) { 
-          for (i = 0; i < xsize; i++) { 
-            dst.setSafe(i, j, k, b, MacCormackCorrectMAC(
-                flags, orig, fwd, bwd, maccormack_strength, i, j, k, b));
-          }
-        }
-      }
-      
-      // Now perform clamping.
-      for (k = 0; k < zsize; k++) { 
-        for (j = 0; j < ysize; j++) { 
-          for (i = 0; i < xsize; i++) {
-            if (i < bnd || i > xsize - 1 - bnd ||
-                j < bnd || j > ysize - 1 - bnd ||
-                (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
-              continue;
-            }
-            // TODO(tompson): Perform our own clamping.
-            const T dval = dst(i, j, k, b);
-            dst.setSafe(i, j, k, b, MacCormackClampMAC(
-                flags, vel, dval, orig, fwd, dt, i, j, k, b));
-          }
-        }
-      }
-    }
-  }
-  if (inplace) {
-    tensor_u.copy_(tensor_u_dst);
   }
 }
 

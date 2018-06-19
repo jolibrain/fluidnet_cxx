@@ -1,6 +1,7 @@
 SET(GRID
      grid/bool_conversion.cpp
      grid/grid.cpp
+     grid/grid_new.cpp
     )
 SET(ADVECTION
      advection/advection.cpp

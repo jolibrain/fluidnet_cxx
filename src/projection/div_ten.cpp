@@ -33,8 +33,8 @@ void velocityDivergenceForward(T& U, T& flags, T& UDiv) {
      AT_ASSERT(d == 1, "2D velocity field but zdepth > 1");
      AT_ASSERT(U.size(1) == 2, "2D velocity field must have only 2 channels"); 
   }
-  AT_ASSERT((U.size(0) == bsz && U.size(z) == d &&
-             U.size(y) == h && U.size(x) == w), "Size mismatch");
+  AT_ASSERT((U.size(0) == bsz && U.size(2) == d &&
+             U.size(3) == h && U.size(4) == w), "Size mismatch");
   AT_ASSERT(UDiv.is_same_size(flags), "Size mismatch");
 
   AT_ASSERT(U.is_contiguous() && flags.is_contiguous() &&
@@ -59,9 +59,8 @@ void velocityDivergenceForward(T& U, T& flags, T& UDiv) {
 
   // -div = u(i+1,j,k) - u(i,j,k) +
   //        v(i,j+1,k) - v(i,j,k) +
-  //        w(i,j,k+1) - w(i,j,k) 
-                       
-  at::Tensor div = Uijk.select(1,0) - Uijk_p.select(1,0) +
+  //        w(i,j,k+1) - w(i,j,k)                        
+  T div = Uijk.select(1,0) - Uijk_p.select(1,0) +
                    Uijk.select(1,1) - Uijk_p.select(1,1);
 
   if (is_3d) {
@@ -75,9 +74,8 @@ void velocityDivergenceForward(T& U, T& flags, T& UDiv) {
   }
 
   //Set div to 0 in obstacles
-  at::Tensor mask_obst = flags.eq(TypeObstacle);
+  T mask_obst = flags.eq(TypeObstacle);
   UDiv.masked_fill_(mask_obst, 0);
-
 }
 
 } // namespace fluid  

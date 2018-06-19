@@ -44,10 +44,10 @@ void velocityUpdateForward
             pressure.is_contiguous(), "Input is not contiguous");
 
   // First, we build the mask for detecting fluid cells. Borders are left untouched.
-  at::Tensor mask_fluid;   // Fluid cells.
-  at::Tensor mask_fluid_i; // Fluid cells with (i-1) neighbour also a fluid. 
-  at::Tensor mask_fluid_j; // Fluid cells with (j-1) neighbour also a fluid.
-  at::Tensor mask_fluid_k; // FLuid cells with (k-1) neighbour also a fluid.
+  T mask_fluid;   // Fluid cells.
+  T mask_fluid_i; // Fluid cells with (i-1) neighbour also a fluid. 
+  T mask_fluid_j; // Fluid cells with (j-1) neighbour also a fluid.
+  T mask_fluid_k; // FLuid cells with (k-1) neighbour also a fluid.
 
   if (!is3D) {
     mask_fluid = flags.narrow(4, 1, w-2).narrow(3, 1, h-2).eq(fluid::TypeFluid);
@@ -66,17 +66,17 @@ void velocityUpdateForward
   }
 
   // Cast into float or double tensor and cat into a single mask along chan.
-  at::Tensor mask_fluid_i_f = mask_fluid_i.type().toScalarType(U.type().scalarType())
+  T mask_fluid_i_f = mask_fluid_i.type().toScalarType(U.type().scalarType())
                                 .copy(mask_fluid_i);
-  at::Tensor mask_fluid_j_f = mask_fluid_j.type().toScalarType(U.type().scalarType())
+  T mask_fluid_j_f = mask_fluid_j.type().toScalarType(U.type().scalarType())
                                 .copy(mask_fluid_j);
-  at::Tensor mask_fluid_k_f;
+  T mask_fluid_k_f;
   if (is3D) {
     mask_fluid_k_f = mask_fluid_k.type().toScalarType(U.type().scalarType())
                        .copy(mask_fluid_k);
   }
 
-  at::Tensor mask;
+  T mask;
   if(!is3D) {
      mask = at::cat({mask_fluid_i_f, mask_fluid_j_f}, 1).contiguous();
   } else {
@@ -84,10 +84,10 @@ void velocityUpdateForward
   }
 
   // pressure tensor.
-  at::Tensor Pijk; // Pressure at (i,j,k) in 3 channels (2 for 2D).
-  at::Tensor Pijk_m; // Pressure at chan 0: (i-1, j, k)
-                     //             chan 1: (i, j-1, k)
-                     //             chan 2: (i, j, k-1)
+  T Pijk;   // Pressure at (i,j,k) in 3 channels (2 for 2D).
+  T Pijk_m; // Pressure at chan 0: (i-1, j, k)
+            //             chan 1: (i, j-1, k)
+            //             chan 2: (i, j, k-1)
 
   if (!is3D) {
     Pijk = pressure.narrow(4, 1, w-2).narrow(3, 1, h-2);

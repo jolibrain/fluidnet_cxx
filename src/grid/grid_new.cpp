@@ -1,7 +1,8 @@
-#include "grid.h"
+#include "grid_new.h"
 #include "cell_type.h"
 
 namespace fluid {
+namespace ten {
 
 typedef at::Tensor T;
 
@@ -23,9 +24,9 @@ T interpol(const T& self, const T& pos) {
   // Cast to integer, truncates towards 0.
   T pos0 = p.toType(at::kLong);
  
-  T s1 = p.select(1,0) - pos0.select(1,0).toType(at::kFloat);
-  T t1 = p.select(1,1) - pos0.select(1,1).toType(at::kFloat);
-  T f1 = p.select(1,2) - pos0.select(1,2).toType(at::kFloat);
+  T s1 = (p.select(1,0) - pos0.select(1,0).toType(at::kFloat)).unsqueeze(1);
+  T t1 = (p.select(1,1) - pos0.select(1,1).toType(at::kFloat)).unsqueeze(1);
+  T f1 = (p.select(1,2) - pos0.select(1,2).toType(at::kFloat)).unsqueeze(1);
   T s0 = 1 - s1; 
   T t0 = 1 - t1;
   T f0 = 1 - f1;
@@ -59,10 +60,10 @@ T interpol(const T& self, const T& pos) {
     return ( ((Ia*t0 + Ib*t1)*s0 + (Ic*t0 + Id*t1)*s1)*f0 +
              ((Ie*t0 + If*t1)*s0 + (Ig*t0 + Ih*t1)*s1)*f1 ); 
   } else {
-   T Ia= self.index({idx_b, {}, z0+1, y0  , x0  }).squeeze(4).unsqueeze(1);
-   T Ib= self.index({idx_b, {}, z0+1, y0+1, x0  }).squeeze(4).unsqueeze(1);
-   T Ic= self.index({idx_b, {}, z0+1, y0  , x0+1}).squeeze(4).unsqueeze(1);
-   T Id= self.index({idx_b, {}, z0+1, y0+1, x0+1}).squeeze(4).unsqueeze(1);
+   T Ia= self.index({idx_b, {}, z0, y0  , x0  }).squeeze(4).unsqueeze(1);
+   T Ib= self.index({idx_b, {}, z0, y0+1, x0  }).squeeze(4).unsqueeze(1);
+   T Ic= self.index({idx_b, {}, z0, y0  , x0+1}).squeeze(4).unsqueeze(1);
+   T Id= self.index({idx_b, {}, z0, y0+1, x0+1}).squeeze(4).unsqueeze(1);
 
     return ( (Ia*t0 + Ib*t1)*s0 + (Ic*t0 + Id*t1)*s1 );
   }
@@ -205,11 +206,11 @@ T interpolWithFluid(const T& self, const T& flags, const T& pos) {
    // Alguacil: when performing index() in ATen, if dimensions are not contiguous,
    // it transposes everything to the front. We transpose it back to the chan dimension.
 
-   T Ia = self.index({idx_b, {}, z0+1, y0  , x0  }).squeeze(4).unsqueeze(1);
-   T Ib = self.index({idx_b, {}, z0+1, y0+1, x0  }).squeeze(4).unsqueeze(1);
+   T Ia = self.index({idx_b, {}, z0 , y0  , x0  }).squeeze(4).unsqueeze(1);
+   T Ib = self.index({idx_b, {}, z0 , y0+1, x0  }).squeeze(4).unsqueeze(1);
 
-   T is_fluid_a = flags.index({idx_b, {}, z0+1, y0  , x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
-   T is_fluid_b = flags.index({idx_b, {}, z0+1, y0+1, x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
+   T is_fluid_a = flags.index({idx_b, {}, z0 , y0  , x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
+   T is_fluid_b = flags.index({idx_b, {}, z0 , y0+1, x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
 
    T Iab;
    T is_fluid_ab;
@@ -217,11 +218,11 @@ T interpolWithFluid(const T& self, const T& flags, const T& pos) {
 
    // val_cd = data(xi + 1, yi, 0, 0, b) * t0 +
    //          data(xi + 1, yi + 1, 0, 0, b) * t1
-   T Ic = self.index({idx_b, {}, z0+1 , y0  , x0+1}).squeeze(4).unsqueeze(1);
-   T Id = self.index({idx_b, {}, z0+1, y0+1, x0+1}).squeeze(4).unsqueeze(1);
+   T Ic = self.index({idx_b, {}, z0 , y0  , x0+1}).squeeze(4).unsqueeze(1);
+   T Id = self.index({idx_b, {}, z0 , y0+1, x0+1}).squeeze(4).unsqueeze(1);
 
-   T is_fluid_c = flags.index({idx_b, {}, z0+1, y0  , x0+1}).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
-   T is_fluid_d = flags.index({idx_b, {}, z0+1, y0+1, x0+1}).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
+   T is_fluid_c = flags.index({idx_b, {}, z0 , y0  , x0+1}).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
+   T is_fluid_d = flags.index({idx_b, {}, z0 , y0+1, x0+1}).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
 
    T Icd;
    T is_fluid_cd;
@@ -242,8 +243,6 @@ T interpolWithFluid(const T& self, const T& flags, const T& pos) {
 // are reduced by 2 in all sizes WxHxD. Self is the complete velocity matrix.
 
 T getCentered(const T& self) {
-
-  AT_ASSERT(self.size(1) == 3, "Input velocity field must have 3 channels");
 
   int bsz = self.size(0);
   int d = self.size(2) ;
@@ -283,8 +282,6 @@ T getCentered(const T& self) {
 
 T getAtMACX(const T& self) {
 
-  AT_ASSERT(self.size(1) == 3, "Input velocity field must have 3 channels");
-
   int bsz = self.size(0);
   int d = self.size(2) ;
   int h = self.size(3);
@@ -315,7 +312,6 @@ T getAtMACX(const T& self) {
                   self.index({idx_b,idx_c.select(1,1) ,idx_z  ,idx_y+1,idx_x-1}) );
   T v_z = at::zeros_like(v_x);
  
-  std::cout << v_x.sizes() << std::endl; 
   if (is3D) {
     T v_y = 0.25 * (self.index({idx_b,idx_c.select(1,2) ,idx_z  ,idx_y  ,idx_x  }) + 
                     self.index({idx_b,idx_c.select(1,2) ,idx_z  ,idx_y  ,idx_x-1}) +
@@ -323,13 +319,10 @@ T getAtMACX(const T& self) {
                     self.index({idx_b,idx_c.select(1,2) ,idx_z+1,idx_y  ,idx_x-1}) );
   }
   
-  std::cout << v_x.sizes() << std::endl; 
   return at::stack({v_x, v_y, v_z}, 1);
 }
 
 T getAtMACY(const T& self) {
-
-  AT_ASSERT(self.size(1) == 3, "Input velocity field must have 3 channels");
 
   int bsz = self.size(0);
   int d = self.size(2) ;
@@ -373,8 +366,6 @@ T getAtMACY(const T& self) {
 }
 
 T getAtMACZ(const T& self) {
-
-  AT_ASSERT(self.size(1) == 3, "Input velocity field must have 3 channels");
 
   int bsz = self.size(0);
   int d = self.size(2) ;
@@ -528,4 +519,5 @@ T curl(const T& self) {
   return at::stack({v_x, v_y, v_z}, 1);
 }
 
+} // namespace ten
 } // namespace fluid
