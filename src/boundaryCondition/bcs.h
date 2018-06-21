@@ -1,8 +1,12 @@
 #pragma once
 
-#include "grid/grid.h"
+#include "ATen/ATen.h"
+#include "grid/grid_new.h"
+#include "grid/cell_type.h"
 
 namespace fluid {
+
+typedef at::Tensor T;
 
 // *****************************************************************************
 // setWallBcsForward
@@ -15,8 +19,8 @@ namespace fluid {
 
 void setWallBcsForward
 (
-    T& tensor_u,
-    T& tensor_flags
+    T& U,
+    T& flags
 );
 
 } // namespace fluid

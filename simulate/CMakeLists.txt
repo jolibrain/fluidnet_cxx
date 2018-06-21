@@ -1,4 +1,4 @@
-SET(SIM_SRC ten_test.cpp)
+SET(SIM_SRC simulate.cpp)
 
 ADD_EXECUTABLE(fluidnet_sim ${SIM_SRC})
 

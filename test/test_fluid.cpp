@@ -7,32 +7,76 @@
 #include "plot_utils.h"
 #include "fluid.h"
 
-
-void advectFluidNet(){
-   for (int dim = 2; dim < 4; dim++){
-      // Do advection using the 2 parameters and check against Manta.
-      std::vector<std::string> m_list = {"eulerFluidNet", "maccormackFluidNet"};
-      for (auto const& method: m_list){
-         for (int sampleOutsideFluid = 0; sampleOutsideFluid < 2; sampleOutsideFluid++){
-           std::string fn = std::to_string(dim) + "d_initial.bin";
-           at::Tensor p;
-           at::Tensor U;
-           at::Tensor flags;
-           at::Tensor density;
-           bool is3D;
-           
-           loadMantaBatch(fn, p, U, flags, density, is3D);
-           // ASSERT IS 3D
-
-           float dt = 0.1;
-           int boundaryWidth = 0;
-           at::Tensor maccormackStrength = CPU(at::kFloat).rand({1}); // default in [0,1]
-           assertNotAllEqual(p);
-         
-         }
-      } 
-   } 
-}
+//void advectFluidNet(){
+//   for (int dim = 2; dim < 4; dim++){
+//      // Do advection using the 2 parameters and check against Manta.
+//      std::vector<std::string> m_list = {"eulerFluidNet", "maccormackFluidNet"};
+//      for (auto const& method: m_list){
+//         for (int sampleOutsideFluid = 0; sampleOutsideFluid < 2; sampleOutsideFluid++){
+//           std::string fn = std::to_string(dim) + "d_initial.bin";
+//           at::Tensor p;
+//           at::Tensor U;
+//           at::Tensor flags;
+//           at::Tensor density;
+//           bool is3D;
+//
+//           loadMantaBatch(fn, p, U, flags, density, is3D);
+//           at::Tensor s_dst = zeros_like(density);
+//           at::Tensor U_dst = zeros_like(U);
+//
+//           float dt = 0.1;
+//           const int bnd = 1;
+//           at::Tensor maccormack_strength = CPU(at::kFloat).rand({}); // default in [0,1]
+//           float str = at::Scalar(maccormack_strength).toFloat();
+//           assertNotAllEqual(p);
+//           at::Tensor density_CUDA = density.toBackend(at::Backend::CUDA);
+//           at::Tensor U_CUDA = U.toBackend(at::Backend::CUDA);
+//           at::Tensor flags_CUDA = flags.toBackend(at::Backend::CUDA);
+//           at::Tensor s_dst_CUDA = s_dst.toBackend(at::Backend::CUDA);
+//           at::Tensor U_dst_CUDA = U_dst.toBackend(at::Backend::CUDA);
+//
+//
+//           fluid::advectScalar(dt, density, U, flags, method, s_dst,
+//               true, str, bnd);
+//           fluid::advectVel(dt, U, flag, method, U_dst, str, bnd);
+//
+//           fluid::advectScalar(dt, density_CUDA, U_CUDA, flags_CUDA, method, s_dst_CUDA,
+//                sampleOutsideFluid, str, bnd);
+//           fluid::advectVel(dt, U_CUDA, flags_CUDA, method, U_dst_CUDA, str, bnd);
+//
+//           AT_ASSERT(s_dst_CUDA.toBackend(at::Backend::CPU).equal(s_dst), "CPU and CUDA implementations are not equal for advect scalar!");
+//           AT_ASSERT(U_dst_CUDA.toBackend(at::Backend::CPU).equal(U_dst), "CPU and CUDA implementations are not equal for advect velocity!");
+//
+//          }
+//      }
+//   }
+//}
+//
+//void advectFluidNet(){
+//   for (int dim = 2; dim < 4; dim++){
+//      // Do advection using the 2 parameters and check against Manta.
+//      std::vector<std::string> m_list = {"eulerFluidNet", "maccormackFluidNet"};
+//      for (auto const& method: m_list){
+//         for (int sampleOutsideFluid = 0; sampleOutsideFluid < 2; sampleOutsideFluid++){
+//           std::string fn = std::to_string(dim) + "d_initial.bin";
+//           at::Tensor p;
+//           at::Tensor U;
+//           at::Tensor flags;
+//           at::Tensor density;
+//           bool is3D;
+//           
+//           loadMantaBatch(fn, p, U, flags, density, is3D);
+//           // ASSERT IS 3D
+//
+//           float dt = 0.1;
+//           int boundaryWidth = 0;
+//           at::Tensor maccormackStrength = CPU(at::kFloat).rand({1}); // default in [0,1]
+//           assertNotAllEqual(p);
+//         
+//         }
+//      } 
+//   } 
+//}
 
 void createJacobianTestData(at::Tensor& p, at::Tensor& U, at::Tensor& flags,
                              at::Tensor& density) {
@@ -119,10 +163,10 @@ void testSetWallBcs(int dim, std::string fnInput, std::string fnOutput) {
 }
 
 void setWallBcs() {
-  for (int dim = 2; dim < 4; dim++){
+  for (int dim = 2; dim < 3; dim++){
     testSetWallBcs(dim, "advect.bin", "setWallBcs1.bin");
-    testSetWallBcs(dim, "gravity.bin", "setWallBcs2.bin");
-    testSetWallBcs(dim, "solvePressure.bin", "setWallBcs3.bin");
+    //testSetWallBcs(dim, "gravity.bin", "setWallBcs2.bin");
+    //testSetWallBcs(dim, "solvePressure.bin", "setWallBcs3.bin");
   }
    std::cout << "Set Wall Bcs ----------------------- [PASS]" << std::endl;
 }
@@ -534,9 +578,9 @@ int main(){
 //}
 //printf(".\n");
 
-//setWallBcs();
-velocityDivergence();
-velocityUpdate();
+setWallBcs();
+//velocityDivergence();
+///velocityUpdate();
 //solveLinearSystemJacobi();
 //addBuoyancy();
 //addGravity();

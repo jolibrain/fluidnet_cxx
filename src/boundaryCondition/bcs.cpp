@@ -2,6 +2,8 @@
 
 namespace fluid {
 
+typedef at::Tensor T;
+
 // *****************************************************************************
 // setWallBcsForward
 // *****************************************************************************
@@ -13,101 +15,70 @@ namespace fluid {
 
 void setWallBcsForward
 (
-    T& tensor_u,
-    T& tensor_flags
+  T& U, T& flags
 ) {
   // Check arguments.
-  AT_ASSERT(tensor_u.dim() == 5 && tensor_flags.dim() == 5, "Dimension mismatch");
-  AT_ASSERT(tensor_flags.size(1) == 1, "flags is not scalar");
-  float bsz = tensor_flags.size(0);
-  float d = tensor_flags.size(2);
-  float h = tensor_flags.size(3);
-  float w = tensor_flags.size(4);
+  AT_ASSERT(U.dim() == 5 && flags.dim() == 5, "Dimension mismatch");
+  AT_ASSERT(flags.size(1) == 1, "flags is not scalar");
+  int bsz = flags.size(0);
+  int d = flags.size(2);
+  int h = flags.size(3);
+  int w = flags.size(4);
 
-  bool is_3d = (tensor_u.size(1) == 3);
-  if (!is_3d) {
+  bool is3D = (U.size(1) == 3);
+  if (!is3D) {
      AT_ASSERT(d == 1, "2D velocity field but zdepth > 1");
-     AT_ASSERT(tensor_u.size(1) == 2, "2D velocity field must have only 2 channels");
+     AT_ASSERT(U.size(1) == 2, "2D velocity field must have only 2 channels");
   }
-  AT_ASSERT((tensor_u.size(0) == bsz && tensor_u.size(2) == d &&
-             tensor_u.size(3) == h && tensor_u.size(4) == w), "Size mismatch");
+  AT_ASSERT((U.size(0) == bsz && U.size(2) == d &&
+             U.size(3) == h && U.size(4) == w), "Size mismatch");
 
-  AT_ASSERT(tensor_u.is_contiguous() && tensor_flags.is_contiguous(),
+  AT_ASSERT(U.is_contiguous() && flags.is_contiguous(),
             "Input is not contiguous");
 
-  FlagGrid flags(tensor_flags, is_3d);
-  MACGrid vel(tensor_u, is_3d);
+  T i = infer_type(flags).arange(0, w).view({1,w}).expand({bsz, d, h, w}).toType(at::kLong);
+  T j = infer_type(i).arange(0, h).view({1,h,1}).expand({bsz, d, h, w});
+  T k = zeros_like(i);
+  if (is3D) {
+     k = infer_type(i).arange(0, d).view({1,d,1,1}).expand({bsz, d, h, w});
+  }
+  T zero = zeros_like(i);
+  T zeroBy = zero.toType(at::kByte);
 
-  at::Backend bckd = flags.getBackend();
-  at::ScalarType real = flags.getGridType();
-  const T at_zero = getType(bckd, real).scalarTensor(0);
+  T idx_b = infer_type(i).arange(0, bsz).view({bsz,1,1,1});
+  idx_b = idx_b.expand({bsz,d,h,w});
 
-  const int32_t xsize = flags.xsize();
-  const int32_t ysize = flags.ysize();
-  const int32_t zsize = flags.zsize();
-  const int32_t nbatch = flags.nbatch();
-  for (int32_t b = 0; b < nbatch; b++) {
-    int32_t k, j, i;
+  T mCont = ones_like(zeroBy);
 
-    for (k = 0; k < zsize; k++) {
-      for (j = 0; j < ysize; j++) {
-        for (i = 0; i < xsize; i++) {
-          const bool cur_fluid = flags.isFluid(i, j, k, b);
-          const bool cur_obs = flags.isObstacle(i, j, k, b);
+  T cur_fluid = flags.eq(TypeFluid).squeeze(1);
+  T cur_obs = flags.eq(TypeObstacle).squeeze(1);
+  T mNotFluidNotObs = cur_fluid.ne(1).__and__(cur_obs.ne(1));
+  mCont.masked_fill_(mNotFluidNotObs, 0);
 
-          if (!cur_fluid && !cur_obs) {
-            continue;
-          }
+  T obst100 = zeroBy.where( i <= 0, (flags.index({idx_b, zero, k, j, i-1}).eq(TypeObstacle))).__and__(mCont);
+  U.select(1,0).masked_fill_(obst100, 0);
 
-          // we use i > 0 instead of bnd=1 to check outer wall
-          if (i > 0 && flags.isObstacle(i - 1, j, k, b)) {
-            vel(i, j, k, 0, b) = at_zero;
-          }
-          if (i > 0 && cur_obs && flags.isFluid(i - 1, j, k, b)) {
-            vel(i, j, k, 0, b) = at_zero;
-          }
-          if (j > 0 && flags.isObstacle(i, j - 1, k, b)) {
-            vel(i, j, k, 1, b) = at_zero;
-          }
-          if (j > 0 && cur_obs && flags.isFluid(i, j - 1, k, b)) {
-            vel(i, j, k, 1, b) = at_zero;
-          }
+  T obs_fluid100 = zeroBy.where( i <= 0, (flags.index({idx_b, zero, k, j, i-1}).eq(TypeFluid))).
+   __and__(cur_obs).__and__(mCont);
+  U.select(1,0).masked_fill_(obs_fluid100, 0);
 
-          if (k > 0 && flags.isObstacle(i, j, k - 1, b)) {
-            vel(i, j, k, 2, b) = at_zero;
-          }
+  T obst010 = zeroBy.where( j <= 0, (flags.index({idx_b, zero, k, j-1, i}).eq(TypeObstacle))).__and__(mCont);
+  U.select(1,1).masked_fill_(obst010, 0);
 
-          if (k > 0 && cur_obs && flags.isFluid(i, j, k - 1, b)) {
-            vel(i, j, k, 2, b) = at_zero;
-          }
+  T obs_fluid010 = zeroBy.where( j <= 0, (flags.index({idx_b, zero, k, j-1, i}).eq(TypeFluid))).
+   __and__(cur_obs).__and__(mCont);
+  U.select(1,1).masked_fill_(obs_fluid010, 0);
 
-          if (cur_fluid) {
-            if ((i > 0 && flags.isStick(i - 1, j, k, b)) ||
-                (i < flags.xsize() - 1 && flags.isStick(i + 1, j, k, b))) {
-              vel(i, j, k, 1, b) = at_zero;
-              if (vel.is_3d()) {
-                vel(i, j, k, 2, b) = at_zero;
-              }
-            }
-            if ((j > 0 && flags.isStick(i, j - 1, k, b)) ||
-                (j < flags.ysize() - 1 && flags.isStick(i, j + 1, k, b))) {
-              vel(i, j, k, 0, b) = at_zero;
-              if (vel.is_3d()) {
-                vel(i, j, k, 2, b) = at_zero;
-              }
-            }
-            if (vel.is_3d() &&
-                ((k > 0 && flags.isStick(i, j, k - 1, b)) ||
-                 (k < flags.zsize() - 1 && flags.isStick(i, j, k + 1, b)))) {
-              vel(i, j, k, 0, b) = at_zero;
-              vel(i, j, k, 1, b) = at_zero;
-            }
-          }
-        }
-      }
-    }
+  if (is3D) {
+    T obst001 = zeroBy.where( k <= 0, (flags.index({idx_b, zero, k-1, j, i}).eq(TypeObstacle))).__and__(mCont);
+    U.select(1,2).masked_fill_(obst001, 0);
+
+    T obs_fluid001 = zeroBy.where( k <= 0, (flags.index({idx_b, zero, k-1, j, i}).eq(TypeFluid))).
+   __and__(cur_obs).__and__(mCont);
+    U.select(1,2).masked_fill_(obs_fluid001, 0);
   }
 
+// TODO: implement TypeStick BCs
 }
 
 } // namespace fluid

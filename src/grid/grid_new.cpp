@@ -6,6 +6,11 @@ namespace ten {
 
 typedef at::Tensor T;
 
+float getDx(at::Tensor self) {
+  float gridSizeMax = std::max(std::max(self.size(2), self.size(3)), self.size(4));
+  return (1.0 / gridSizeMax);
+}
+
 T interpol(const T& self, const T& pos) {
 
   AT_ASSERT(pos.size(1) == 3, "Input pos must have 3 channels"); 
@@ -410,7 +415,6 @@ T getAtMACZ(const T& self) {
 T interpolComponent(const T& self, const T& pos, int c) {
 
   AT_ASSERT(pos.size(1) == 3, "Input pos must have 3 channels"); 
-  AT_ASSERT(self.size(1) == 3, "Input velocity field must have 3 channels"); 
 
   bool is3D = (self.size(2) > 1);
   int bsz = pos.size(0);
@@ -462,10 +466,10 @@ T interpolComponent(const T& self, const T& pos, int c) {
     return ( (((Ia*t0 + Ib*t1)*s0 + (Ic*t0 + Id*t1)*s1)*f0 +
              ((Ie*t0 + If*t1)*s0 + (Ig*t0 + Ih*t1)*s1)*f1 ).unsqueeze(1) ); 
   } else {
-   T Ia= self.index({idx_b, idx_c.select(1,c), z0+1, y0  , x0  });
-   T Ib= self.index({idx_b, idx_c.select(1,c), z0+1, y0+1, x0  });
-   T Ic= self.index({idx_b, idx_c.select(1,c), z0+1, y0  , x0+1});
-   T Id= self.index({idx_b, idx_c.select(1,c), z0+1, y0+1, x0+1});
+   T Ia= self.index({idx_b, idx_c.select(1,c), z0  , y0  , x0  });
+   T Ib= self.index({idx_b, idx_c.select(1,c), z0  , y0+1, x0  });
+   T Ic= self.index({idx_b, idx_c.select(1,c), z0  , y0  , x0+1});
+   T Id= self.index({idx_b, idx_c.select(1,c), z0  , y0+1, x0+1});
 
     return ( ((Ia*t0 + Ib*t1)*s0 + (Ic*t0 + Id*t1)*s1 ).unsqueeze(1) ); 
   }                         

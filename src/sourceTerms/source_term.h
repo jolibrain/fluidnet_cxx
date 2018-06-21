@@ -1,8 +1,12 @@
 #pragma once
 
-#include "grid/grid.h"
+#include "ATen/ATen.h"
+#include "grid/grid_new.h"
+#include "grid/cell_type.h"
 
 namespace fluid {
+
+typedef at::Tensor T;
 
 // *****************************************************************************
 // addBuoyancy

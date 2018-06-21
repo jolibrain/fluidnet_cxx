@@ -17,110 +17,103 @@ namespace fluid {
 
 void velocityUpdateForward
 (
-    T& tensor_u,
-    T& tensor_flags,
-    T& tensor_p
+    T& U,
+    T& flags,
+    T& pressure
 ) {
   // Check arguments.
-  AT_ASSERT(tensor_u.dim() == 5 && tensor_flags.dim() == 5 && tensor_p.dim() == 5,
+  AT_ASSERT(U.dim() == 5 && flags.dim() == 5 && pressure.dim() == 5,
              "Dimension mismatch");
-  AT_ASSERT(tensor_flags.size(1) == 1, "flags is not scalar");
-  int bsz = tensor_flags.size(0);
-  int d = tensor_flags.size(2);
-  int h = tensor_flags.size(3);
-  int w = tensor_flags.size(4);
+  AT_ASSERT(flags.size(1) == 1, "flags is not scalar");
+  int b = flags.size(0);
+  int d = flags.size(2);
+  int h = flags.size(3);
+  int w = flags.size(4);
 
-  bool is_3d = (tensor_u.size(1) == 3);
-  if (!is_3d) {
+  bool is3D = (U.size(1) == 3);
+  if (!is3D) {
     AT_ASSERT(d == 1, "d > 1 for a 2D domain");
-    AT_ASSERT(tensor_u.size(4) == w, "2D velocity field must have only 2 channels");
+    AT_ASSERT(U.size(4) == w, "2D velocity field must have only 2 channels");
   }
 
-  AT_ASSERT(tensor_u.size(0) == bsz && tensor_u.size(2) == d && tensor_u.size(3) == h
-      && tensor_u.size(4) == w, "size mismatch");
-  AT_ASSERT(tensor_p.is_same_size(tensor_flags), "size mismatch");
+  AT_ASSERT(U.size(0) == b && U.size(2) == d && U.size(3) == h
+      && U.size(4) == w, "size mismatch");
+  AT_ASSERT(pressure.is_same_size(flags), "size mismatch");
 
-  AT_ASSERT(tensor_u.is_contiguous() && tensor_flags.is_contiguous() &&
-            tensor_p.is_contiguous(), "Input is not contiguous");
+  AT_ASSERT(U.is_contiguous() && flags.is_contiguous() &&
+            pressure.is_contiguous(), "Input is not contiguous");
 
-  T flags_test = infer_type(tensor_flags).zeros({bsz, 1, d, h, w});
-  T flags_test_i = flags_test.clone();
-  T flags_test_j = flags_test.clone();
-  T flags_test_k = flags_test.clone();
+  // First, we build the mask for detecting fluid cells. Borders are left untouched.
+  T mask_fluid;   // Fluid cells.
+  T mask_fluid_i; // Fluid cells with (i-1) neighbour also a fluid. 
+  T mask_fluid_j; // Fluid cells with (j-1) neighbour also a fluid.
+  T mask_fluid_k; // FLuid cells with (k-1) neighbour also a fluid.
 
-  FlagGrid flags(tensor_flags, is_3d);
-  MACGrid vel(tensor_u, is_3d);
-  RealGrid pressure(tensor_p, is_3d);
+  if (!is3D) {
+    mask_fluid = flags.narrow(4, 1, w-2).narrow(3, 1, h-2).eq(fluid::TypeFluid);
+    mask_fluid_i = mask_fluid.__and__
+            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).eq(fluid::TypeFluid));
+    mask_fluid_j = mask_fluid.__and__
+            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(fluid::TypeFluid));
+  } else {
+    mask_fluid  = flags.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).eq(fluid::TypeFluid);
+    mask_fluid_i = mask_fluid.__and__
+     (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).eq(fluid::TypeFluid));
+    mask_fluid_j = mask_fluid.__and__
+     (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).narrow(2, 1, d-2).eq(fluid::TypeFluid));
+    mask_fluid_k = mask_fluid.__and__
+     (flags.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 0, d-2).eq(fluid::TypeFluid));
+  }
 
-  const int32_t xsize = flags.xsize();
-  const int32_t ysize = flags.ysize();
-  const int32_t zsize = flags.zsize();
-  const int32_t nbatch = flags.nbatch();
-  for (int32_t b = 0; b < nbatch; b++) {
-    int32_t k, j, i;
-    const int32_t bnd = 1;
-    for (k = 0; k < zsize; k++) {
-      for (j = 0; j < ysize; j++) {
-        for (i = 0; i < xsize; i++) {
-          if (i < bnd || i > xsize - 1 - bnd ||
-              j < bnd || j > ysize - 1 - bnd ||
-              (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
-            // Manta doesn't touch the velocity on the boundaries (i.e.
-            // it stays constant).
-            continue;
-          }
+  // Cast into float or double tensor and cat into a single mask along chan.
+  T mask_fluid_i_f = mask_fluid_i.type().toScalarType(U.type().scalarType())
+                                .copy(mask_fluid_i);
+  T mask_fluid_j_f = mask_fluid_j.type().toScalarType(U.type().scalarType())
+                                .copy(mask_fluid_j);
+  T mask_fluid_k_f;
+  if (is3D) {
+    mask_fluid_k_f = mask_fluid_k.type().toScalarType(U.type().scalarType())
+                       .copy(mask_fluid_k);
+  }
 
-          if (flags.isFluid(i, j, k, b)) {
-            flags_test[b][0][k][j][i] = 1;
-            if (flags.isFluid(i - 1, j, k, b)) {
-              flags_test_i[b][0][k][j][i] = 1;
-              
-              vel(i, j, k, 0, b) -= (pressure(i, j, k, b) -
-                                     pressure(i - 1, j, k, b));
-            }
-            if (flags.isFluid(i, j - 1, k, b)) {
-             flags_test_j[b][0][k][j][i] = 1;
-              vel(i, j, k, 1, b) -= (pressure(i, j, k, b) -
-                                     pressure(i, j - 1, k, b));
-            }
-            if (is_3d && flags.isFluid(i, j, k - 1, b)) {
-              flags_test_k[b][0][k][j][i] = 1;
-              vel(i, j, k, 2, b) -= (pressure(i, j, k, b) -
-                                     pressure(i, j, k - 1, b));
-            }
-            if (flags.isEmpty(i - 1, j, k, b)) {
-              vel(i, j, k, 0, b) -= pressure(i, j, k, b);
-            }
-            if (flags.isEmpty(i, j - 1, k, b)) {
-              vel(i, j, k, 1, b) -= pressure(i, j, k, b);
-            }
-            if (is_3d && flags.isEmpty(i, j, k - 1, b)) {
-              vel(i, j, k, 2, b) -= pressure(i, j, k, b);
-            }
-          }
-          else if (flags.isEmpty(i, j, k, b) && !flags.isOutflow(i, j, k, b)) {
-            // don't change velocities in outflow cells   
-            if (flags.isFluid(i - 1, j, k, b)) {
-              vel(i, j, k, 0, b) += pressure(i - 1, j, k, b);
-            } else {
-              vel(i, j, k, 0, b)  = 0;
-            }
-            if (flags.isFluid(i, j - 1, k, b)) {
-              vel(i, j, k, 1, b) += pressure(i, j - 1, k, b);
-            } else {
-              vel(i, j, k, 1, b)  = 0;
-            }
-            if (is_3d) {
-              if (flags.isFluid(i, j, k - 1, b)) {
-                vel(i, j, k, 2, b) += pressure(i, j, k - 1, b);
-              } else {
-                vel(i, j, k, 2, b)  = 0;
-              }
-            }
-          }
-        }
-      }
-    }
+  T mask;
+  if(!is3D) {
+     mask = at::cat({mask_fluid_i_f, mask_fluid_j_f}, 1).contiguous();
+  } else {
+     mask = at::cat({mask_fluid_i_f, mask_fluid_j_f, mask_fluid_k_f}, 1).contiguous();
+  }
+
+  // pressure tensor.
+  T Pijk;   // Pressure at (i,j,k) in 3 channels (2 for 2D).
+  T Pijk_m; // Pressure at chan 0: (i-1, j, k)
+            //             chan 1: (i, j-1, k)
+            //             chan 2: (i, j, k-1)
+
+  if (!is3D) {
+    Pijk = pressure.narrow(4, 1, w-2).narrow(3, 1, h-2);
+    Pijk = Pijk.clone().expand({b, 2, d, h-2, w-2});
+    Pijk_m = Pijk.clone().expand({b, 2, d, h-2, w-2});
+    Pijk_m.select(1,0) = pressure.narrow(4, 0, w-2).narrow(3, 1, h-2).squeeze(1);
+    Pijk_m.select(1,1) = pressure.narrow(4, 1, w-2).narrow(3, 0, h-2).squeeze(1);
+  } else {
+    Pijk = pressure.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2);
+    Pijk = Pijk.clone().expand({b, 3, d-2, h-2, w-2});
+    Pijk_m = Pijk.clone().expand({b, 3, d-2, h-2, w-2});
+    Pijk_m.select(1,0) = pressure.narrow(4, 0, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).squeeze(1);
+    Pijk_m.select(1,1) = pressure.narrow(4, 1, w-2).narrow(3, 0, h-2).narrow(2, 1, d-2).squeeze(1);
+    Pijk_m.select(1,2) = pressure.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 0, d-2).squeeze(1);
+  }
+
+  // u = u - grad(p)
+  // grad(p) = [[ p(i,j,k) - p(i-1,j,k) ]
+  //            [ p(i,j,k) - p(i,j-1,k) ]
+  //            [ p(i,j,k) - p(i,j,k-1) ]]
+  if (!is3D) {
+    U.narrow(4, 1, w-2).narrow(3, 1, h-2) = mask *
+            (U.narrow(4, 1, w-2).narrow(3, 1, h-2) - (Pijk - Pijk_m));
+  } else {
+    U.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2) =  mask *
+            (U.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2) - (Pijk - Pijk_m));
   }
 
 }

@@ -5,6 +5,8 @@ namespace ten {
 
 typedef at::Tensor T;
 
+float getDx(at::Tensor self);
+
 T interpol(const T& self, const T& pos);
 
 void interpol1DWithFluid(

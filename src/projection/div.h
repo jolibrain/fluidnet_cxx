@@ -5,7 +5,7 @@
 
 namespace fluid {
 
-  typedef at::Tensor T;
+typedef at::Tensor T;
 
 // *****************************************************************************
 // velocityDivergenceForward
@@ -18,6 +18,6 @@ namespace fluid {
 // input flags - input occupancy grid
 // input UDiv - output divergence (scalar field). 
 
-  void velocityDivergenceForward(T& U, T& flags, T& UDiv);
+void velocityDivergenceForward(T& U, T& flags, T& UDiv);
 
 } // namespace fluid

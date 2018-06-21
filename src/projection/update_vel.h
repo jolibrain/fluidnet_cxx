@@ -20,6 +20,6 @@ namespace fluid {
 // input flags - input occupancy grid
 // input pressure - scalar pressure field.
 
-  void velocityUpdateForward(T& U, T& flags, T& pressure);
+void velocityUpdateForward(T& U, T& flags, T& pressure);
 
 } // namespace fluid

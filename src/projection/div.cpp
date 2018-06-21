@@ -13,77 +13,69 @@ namespace fluid {
 // input flags - input occupancy grid
 // input UDiv - output divergence (scalar field). 
 
-void velocityDivergenceForward
-(
-    T& tensor_u,
-    T& tensor_flags,
-    T& tensor_u_div
-) {
+void velocityDivergenceForward(T& U, T& flags, T& UDiv) {
   // Check sizes
-  AT_ASSERT(tensor_u.dim() == 5 && tensor_flags.dim() == 5 && tensor_u_div.dim() == 5,
+  AT_ASSERT(U.dim() == 5 && flags.dim() == 5 && UDiv.dim() == 5,
     "Dimension mismatch");
-  AT_ASSERT(tensor_flags.size(1) == 1, "flags is not scalar");
-  float bsz = tensor_flags.size(0);
-  float d = tensor_flags.size(2);
-  float h = tensor_flags.size(3);  
-  float w = tensor_flags.size(4);
+  AT_ASSERT(flags.size(1) == 1, "flags is not scalar");
+  int bsz = flags.size(0);
+  int d = flags.size(2);
+  int h = flags.size(3);  
+  int w = flags.size(4);
+  int bnd = 1; // Boundary width (hard coded)
+
+  int z = 2;
+  int y = 3;
+  int x = 4;
   
-  bool is_3d = (tensor_u.size(1) == 3);
+  bool is_3d = (U.size(1) == 3);
   if (!is_3d) {
      AT_ASSERT(d == 1, "2D velocity field but zdepth > 1");
-     AT_ASSERT(tensor_u.size(1) == 2, "2D velocity field must have only 2 channels"); 
+     AT_ASSERT(U.size(1) == 2, "2D velocity field must have only 2 channels"); 
   }
-  AT_ASSERT((tensor_u.size(0) == bsz && tensor_u.size(2) == d &&
-             tensor_u.size(3) == h && tensor_u.size(4) == w), "Size mismatch");
-  AT_ASSERT(tensor_u_div.is_same_size(tensor_flags), "Size mismatch");
+  AT_ASSERT((U.size(0) == bsz && U.size(2) == d &&
+             U.size(3) == h && U.size(4) == w), "Size mismatch");
+  AT_ASSERT(UDiv.is_same_size(flags), "Size mismatch");
 
-  AT_ASSERT(tensor_u.is_contiguous() && tensor_flags.is_contiguous() &&
-            tensor_u_div.is_contiguous(), "Input is not contiguous");
+  AT_ASSERT(U.is_contiguous() && flags.is_contiguous() &&
+            UDiv.is_contiguous(), "Input is not contiguous");
+  
+  T Uijk; // Velocity in ijk
+  T Uijk_p; // Velocity in (i+1),(j+1),(k+1)
 
-  FlagGrid flags(tensor_flags, is_3d);
-  MACGrid  vel(tensor_u, is_3d);
-  RealGrid rhs(tensor_u_div, is_3d);
-
-  const int32_t xsize = flags.xsize();
-  const int32_t ysize = flags.ysize();
-  const int32_t zsize = flags.zsize();
-  const int32_t nbatch = flags.nbatch();
-
-  for (int32_t b = 0; b < nbatch; b++) {
-    int32_t k, j, i;
-    const int32_t bnd = 1;
-
-    // Note: our kernel assumes enforceCompatibility == false (i.e. we do not
-    // do the reduction) and that fractions are not provided.
-    for (k = 0; k < zsize; k++) {
-      for (j = 0; j < ysize; j++) {
-        for (i = 0; i < xsize; i++) {
-          if (i < bnd || i > xsize - 1 - bnd ||
-              j < bnd || j > ysize - 1 - bnd ||
-              (is_3d && (k < bnd || k > zsize - 1 - bnd))) {
-            // Manta zeros stuff on the border.
-            rhs(i, j, k, b) = 0;
-            continue;
-          }
-
-          if (!flags.isFluid(i, j, k, b)) {
-            rhs(i, j, k, b) = 0;
-            continue;
-          }
-
-          // compute divergence (rhs of poisson equation) 
-          // no flag checks: assumes vel at obstacle interfaces is set to zero.
-          T div =
-              vel(i, j, k, 0, b) - vel(i + 1, j, k, 0, b) +
-              vel(i, j, k, 1, b) - vel(i, j + 1, k, 1, b);
-          if (is_3d) {
-            div += (vel(i, j, k, 2, b) - vel(i, j, k + 1, 2, b));
-          }
-          rhs(i, j, k, b) = div;
-        }
-      }
-    }
+  // Remove the borders in x, y and z and build the i+1, j+1, k+1 tensor
+  if (!is_3d) {
+    Uijk = U.narrow(x, 1, w-2).narrow(y, 1, h-2);
+    Uijk_p = Uijk.clone();
+    Uijk_p.select(1,0) = U.narrow(x, 2, w-2).narrow(y, 1, h-2).select(1,0);
+    Uijk_p.select(1,1) = U.narrow(x, 1, w-2).narrow(y, 2, h-2).select(1,1);
+  } else {
+    Uijk = U.narrow(x, 1, w-2).narrow(y, 1, h-2).narrow(z, 1, d-2);
+    Uijk_p = Uijk.clone();
+    Uijk_p.select(1,0) = U.narrow(x, 2, w-2).narrow(y, 1, h-2).narrow(z, 1, d-2).select(1,0);
+    Uijk_p.select(1,1) = U.narrow(x, 1, w-2).narrow(y, 2, h-2).narrow(z, 1, d-2).select(1,1);
+    Uijk_p.select(1,2) = U.narrow(x, 1, w-2).narrow(y, 1, h-2).narrow(z, 2, d-2).select(1,2);
   }
+
+  // -div = u(i+1,j,k) - u(i,j,k) +
+  //        v(i,j+1,k) - v(i,j,k) +
+  //        w(i,j,k+1) - w(i,j,k)                        
+  T div = Uijk.select(1,0) - Uijk_p.select(1,0) +
+                   Uijk.select(1,1) - Uijk_p.select(1,1);
+
+  if (is_3d) {
+    div += Uijk.select(1,2) - Uijk_p.select(1,2);
+  }
+
+  if (!is_3d) {
+    UDiv.narrow(x, 1, w-2).narrow(y, 1, h-2) = div.view({bsz, 1, d, h-2, w-2});
+  } else {
+    UDiv.narrow(x, 1, w-2).narrow(y, 1, h-2).narrow(z, 1, d-2) = div.view({bsz, 1, d-2, h-2, w-2});
+  }
+
+  //Set div to 0 in obstacles
+  T mask_obst = flags.eq(TypeObstacle);
+  UDiv.masked_fill_(mask_obst, 0);
 }
 
 } // namespace fluid  
