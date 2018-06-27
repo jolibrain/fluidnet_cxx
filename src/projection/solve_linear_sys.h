@@ -20,9 +20,9 @@ namespace fluid {
 
 float solveLinearSystemJacobi
 (
-   T& tensor_p,
-   T& tensor_flags,
-   T& tensor_div,
+   T& p,
+   T& flags,
+   T& div,
    const bool is_3d,
    const float p_tol,
    const int max_iter,

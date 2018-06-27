@@ -271,15 +271,15 @@ T getCentered(const T& self) {
 
   T idx_c = infer_type(idx_x).arange(0, 3).view({1,3,1,1,1});
 
-  T c_vel_x = 0.5 * self.index({idx_b,idx_c.select(1,0) ,idx_z  ,idx_y  ,idx_x  }) + 
-                    self.index({idx_b,idx_c.select(1,0) ,idx_z  ,idx_y  ,idx_x+1});
-  T c_vel_y = 0.5 * self.index({idx_b,idx_c.select(1,1) ,idx_z  ,idx_y  ,idx_x  }) + 
-                    self.index({idx_b,idx_c.select(1,1) ,idx_z  ,idx_y+1,idx_x  });
+  T c_vel_x = 0.5 * ( self.index({idx_b,idx_c.select(1,0) ,idx_z  ,idx_y  ,idx_x  }) + 
+                    self.index({idx_b,idx_c.select(1,0) ,idx_z  ,idx_y  ,idx_x+1}) );
+  T c_vel_y = 0.5 * ( self.index({idx_b,idx_c.select(1,1) ,idx_z  ,idx_y  ,idx_x  }) + 
+                    self.index({idx_b,idx_c.select(1,1) ,idx_z  ,idx_y+1,idx_x  }) );
   T c_vel_z = at::zeros_like(c_vel_x);
   
   if (is3D) {
-    c_vel_z = 0.5 * self.index({idx_b,idx_c.select(1,2) ,idx_z  ,idx_y  ,idx_x  }) + 
-                    self.index({idx_b,idx_c.select(1,2) ,idx_z+1,idx_y  ,idx_x  });
+    c_vel_z = 0.5 * ( self.index({idx_b,idx_c.select(1,2) ,idx_z  ,idx_y  ,idx_x  }) + 
+                    self.index({idx_b,idx_c.select(1,2) ,idx_z+1,idx_y  ,idx_x  }) );
   }
 
   return at::stack({c_vel_x, c_vel_y, c_vel_z}, 1);

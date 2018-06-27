@@ -3,14 +3,12 @@
 #include <sstream>
 #include <omp.h>
 
-#include "../test/load_manta_data.h"
-#include "../test/plot_utils.h"
+#include "load_manta_data.h"
+#include "plot_utils.h"
 
 #include "ATen/ATen.h"
 
 #include "fluid.h"
-
-std::ostream mycout(std::cout.rdbuf());
 
 void createPlumeBCs(std::vector<at::Tensor>& batch, float densityVal, float uScale,
              float rad) {
@@ -109,11 +107,9 @@ void setConstVals(std::vector<at::Tensor>& batch, at::Tensor& p,
  U.mul_(batch[5]);
  // Add back the values we want to specify.
  U.add_(batch[4]);
- batch[1] = U;
 
  density.mul_(batch[7]);
  density.add_(batch[6]);
- batch[3] = density;
 
 }
 
@@ -185,14 +181,16 @@ void simulate(std::vector<at::Tensor>& batch, int res) {
 
   // First advect all scalar fields.
   at::Tensor density_dst = density.clone();
-  fluid::advectScalar(dt, density, U, flags, density_dst, "maccormackFluidNet",
+  fluid::old::advectScalar(dt, flags, U, density, true,  density_dst, "maccormackFluidNet",
                       1, sampleOutsideFluid, maccormackStrength);
-  density = density_dst;
+  std::cout << "density" << std::endl;
+  std::cout << density << std::endl;
 
+//  density = density_dst;
   // Self-advect velocity
   at::Tensor vel_dst = U.clone();
-  fluid::advectVel(dt, U, flags, vel_dst,  "maccormackFluidNet", 1, maccormackStrength);
-  U = vel_dst;
+  fluid::old::advectVel(dt, flags, U, true, vel_dst,  "maccormackFluidNet", 1, maccormackStrength);
+ // U = vel_dst;
 
   // Set the manual BCs.
   setConstVals(batch, p, U, flags, density);
@@ -221,8 +219,11 @@ void simulate(std::vector<at::Tensor>& batch, int res) {
   float pTol = 0;
   int maxIter = 34;
 
+  // Until replaced by a tensorial version, it must be done in CPU.
+ 
   residual = fluid::solveLinearSystemJacobi(p, flags, div, is3D, pTol, maxIter, false);
   
+
   fluid::velocityUpdateForward(U, flags, p);
   setConstVals(batch, p, U, flags, density);
 }
@@ -231,12 +232,12 @@ void simulate(std::vector<at::Tensor>& batch, int res) {
 
 int main() {
 
-int res = 50;
+int res = 10;
 
-at::Tensor p =       CUDA(at::kFloat).zeros({1,1,1,res,res});
-at::Tensor U =       CUDA(at::kFloat).zeros({1,2,1,res,res});
-at::Tensor flags =   CUDA(at::kFloat).zeros({1,1,1,res,res});
-at::Tensor density = CUDA(at::kFloat).zeros({1,1,1,res,res});
+at::Tensor p =       CPU(at::kFloat).zeros({1,1,1,res,res});
+at::Tensor U =       CPU(at::kFloat).zeros({1,2,1,res,res});
+at::Tensor flags =   CPU(at::kFloat).zeros({1,1,1,res,res});
+at::Tensor density = CPU(at::kFloat).zeros({1,1,1,res,res});
 
 fluid::emptyDomain(flags);
 std::vector<at::Tensor> batch;
@@ -251,20 +252,19 @@ float rad = 0.15;
 float plumeScale = 1.0 * ((float) res/128);
 
 createPlumeBCs(batch, densityVal, plumeScale, rad);
-int maxIter = 1000;
-int outIter = 20;
+int maxIter = 2;
+int outIter = 100000;
 int it = 0;
 while (it < maxIter) {
+  std::cout << "Iteration " << it+1 << " out of " << maxIter << std::endl;
   fluid::simulate(batch, res);
+  std::cout << "density" << std::endl;
+  std::cout << batch[3] << std::endl;
   it++;
   if (it % outIter == 0) {
     std::cout << "Writing output at iteration " << it << std::endl;
     std::string name_density = "density_it_" + std::to_string(it);
-    std::string name_ux = "ux_it_" + std::to_string(it);
-    std::string name_uy = "uy_it_" + std::to_string(it);
     plotTensor2D(batch[3].toBackend(at::Backend::CPU), 500, 500, name_density);
-    plotTensor2D(batch[1].select(1,0).unsqueeze(1).toBackend(at::Backend::CPU), 500, 500, name_ux);
-    plotTensor2D(batch[1].select(1,1).unsqueeze(1).toBackend(at::Backend::CPU), 500, 500, name_uy);
   }
 }
 }

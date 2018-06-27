@@ -4,6 +4,7 @@
 #include "grid/grid_new.h"
 #include "grid/cell_type.h"
 #include "advection/advection.h"
+#include "advection/old/advection_old.h"
 #include "boundaryCondition/bcs.h"
 #include "sourceTerms/source_term.h"
 #include "projection/div.h"

@@ -40,23 +40,23 @@ T SemiLagrangeEulerFluidNet
   
   T pos = infer_type(src).zeros({bsz, 3, d, h, w});
  
-  pos.select(1,0) = i + 0.5;
-  pos.select(1,1) = j + 0.5;
-  pos.select(1,2) = k + 0.5;
+  pos.select(1,0) = i.toType(infer_type(src)) + 0.5;
+  pos.select(1,1) = j.toType(infer_type(src)) + 0.5;
+  pos.select(1,2) = k.toType(infer_type(src)) + 0.5;
 
   T displacement = zeros_like(pos);
-  
+ 
   // getCentered already eliminates border cells, no need to perform a masked select.
-  displacement.masked_scatter_(maskBorder, fluid::ten::getCentered(vel));
-  displacement.mul_(dt);
+  displacement.masked_scatter_(maskBorder.ne(1), fluid::ten::getCentered(vel));
+  displacement.mul_(-dt);
  
   // Calculate a line trace from pos along displacement.
   // NOTE: this is expensive (MUCH more expensive than Manta's routines), but
   // can avoid some artifacts which would occur sampling into Geometry.
-  
+ 
   T back_pos;
   calcLineTrace(pos, displacement, flags, back_pos, line_trace);
-  
+ 
   // Finally, sample the field at this back position.
   if (!sample_outside_fluid) {
     ret.masked_scatter_(maskFluid,
@@ -95,20 +95,20 @@ T SemiLagrangeEulerFluidNetSavePos
   
   T start_pos = infer_type(src).zeros({bsz, 3, d, h, w});
  
-  start_pos.select(1,0) = i + 0.5;
-  start_pos.select(1,1) = j + 0.5;
-  start_pos.select(1,2) = k + 0.5;
+  start_pos.select(1,0) = i.toType(infer_type(src)) + 0.5;
+  start_pos.select(1,1) = j.toType(infer_type(src)) + 0.5;
+  start_pos.select(1,2) = k.toType(infer_type(src)) + 0.5;
 
   // Don't advect solid geometry.
   pos.masked_scatter_(maskSolid, start_pos.masked_select(maskSolid)); 
   ret.masked_scatter_(maskSolid, src.masked_select(maskSolid));
 
-  T displacement = zeros_like(pos);
+  T displacement = zeros_like(start_pos);
   
   // getCentered already eliminates border cells, no need to perform a masked select.
-  displacement.masked_scatter_(maskBorder, fluid::ten::getCentered(vel));
-  displacement.mul_(dt);
- 
+  displacement.masked_scatter_(maskBorder.ne(1), fluid::ten::getCentered(vel));
+  displacement.mul_(-dt);
+
   // Calculate a line trace from pos along displacement.
   // NOTE: this is expensive (MUCH more expensive than Manta's routines), but
   // can avoid some artifacts which would occur sampling into Geometry.
@@ -168,10 +168,14 @@ T getClampBounds
   T minv = full_like(flags.toType(at::kFloat), INFINITY).squeeze(1);
   T maxv = full_like(flags.toType(at::kFloat), -INFINITY).squeeze(1);
   
-  T i0 = pos.select(1,0).clamp(0, flags.size(4) - 1).toType(at::kLong);
-  T j0 = pos.select(1,1).clamp(0, flags.size(3) - 1).toType(at::kLong);
-  T k0 = (src.size(1) > 1) ? pos.select(1,2).clamp(0, flags.size(2) - 1)
-       .toType(at::kLong) : zeros_like(i0);
+  T i0 = infer_type(pos).zeros({bsz, d, h, w}).toType(at::kLong);
+  T j0 = infer_type(pos).zeros({bsz, d, h, w}).toType(at::kLong);
+  T k0 = infer_type(pos).zeros({bsz, d, h, w}).toType(at::kLong);
+ 
+  i0 = clamp(pos.select(1,0).toType(at::kLong), 0, flags.size(4) - 1);
+  j0 = clamp(pos.select(1,1).toType(at::kLong), 0, flags.size(3) - 1);
+  k0 = (src.size(1) > 1) ? clamp(pos.select(1,2).toType(at::kLong), 0, flags.size(2) - 1)
+        : zeros_like(i0);
 
   T idx_b = infer_type(i0).arange(0, bsz).view({bsz,1,1,1});
   idx_b = idx_b.expand({bsz,d,h,w});
@@ -193,23 +197,21 @@ T getClampBounds
                              ( (j0 + dj) < 0).__or__( (j0 + dj) >= flags.size(3)).__or__
                              ( (i0 + di) < 0).__or__( (i0 + di) >= flags.size(4)));
 
-        i = zero.where( (i0 + di < 0), i0);
-        i = zero.where( (i0 + di >= flags.size(4)), i0);
-        j = zero.where( (j0 + dj < 0), j0);
-        j = zero.where( (j0 + dj >= flags.size(3)), j0);
-        k = zero.where( (k0 + dk < 0), k0);
-        k = zero.where( (k0 + dk >= flags.size(2)), k0);
- 
+        i = zero.where( (i0 + di < 0).__or__(i0 + di >= flags.size(4)), i0 + di);
+        j = zero.where( (j0 + dj < 0).__or__(j0 + dj >= flags.size(3)), j0 + dj);
+        k = zero.where( (k0 + dk < 0).__or__(k0 + dk >= flags.size(2)), k0 + dk);
+
         T flags_ijk = flags.index({idx_b, zero, k, j, i});
         T src_ijk = src.index({idx_b, zero, k, j, i});
         T maskSample = maskOutsideBounds.ne(1).__and__(flags_ijk.eq(TypeFluid).__or__(sample_outside));
 
-        minv.masked_scatter_(maskSample, at::max(minv, src_ijk).masked_select(maskSample));
-        maxv.masked_scatter_(maskSample, at::min(maxv, src_ijk).masked_select(maskSample));
+        minv.masked_scatter_(maskSample, at::min(minv, src_ijk).masked_select(maskSample));
+        maxv.masked_scatter_(maskSample, at::max(maxv, src_ijk).masked_select(maskSample));
         ncells.masked_scatter_(maskSample, (ncells + 1).masked_select(maskSample));
       }
     }
   }
+
   T ret = zeros_like(flags).toType(at::kByte);
   ncells = ncells.unsqueeze(1);
   clamp_min.masked_scatter_( (ncells >= 1) , minv.unsqueeze(1).masked_select( ncells >= 1));
@@ -242,9 +244,10 @@ T MacCormackClampFluidNet(
   if (is3D) {
     pos.select(1,2) = fwd_pos.select(1,2);
   }
-  
+
   T do_clamp_fwd = getClampBounds(
     src, pos, flags, sample_outside, clamp_min, clamp_max);
+
   // According to Selle et al. (An Unconditionally Stable MacCormack Method) only
   // a forward search is necessary.
  
@@ -253,7 +256,7 @@ T MacCormackClampFluidNet(
   // Otherwise, we found valid values with which to clamp the maccormack corrected
   // quantity. Apply this clamp.
  
-  return fwd.where(do_clamp_fwd.ne(1), at::max( at::min(dst, clamp_max), clamp_min));
+  return fwd.where(do_clamp_fwd.ne(1), at::min( clamp_max, at::max(clamp_min, dst)));
 }
 
 // Advect scalar field 'p' by the input vel field 'u'.
@@ -331,13 +334,13 @@ void advectScalar
       maskBorder = maskBorder.__or__(idx_z < bnd).__or__
                                     (idx_z > d - 1 - bnd);
   }
-  maskBorder = maskBorder.unsqueeze(1);
+  maskBorder.unsqueeze_(1);
  
   // Manta zeros stuff on the border.
   cur_dst.masked_fill_(maskBorder, 0);
-  pos_corrected.select(1,0) = idx_x + 0.5;
-  pos_corrected.select(1,1) = idx_y + 0.5;
-  pos_corrected.select(1,2) = idx_z + 0.5;
+  pos_corrected.select(1,0) = idx_x.toType(infer_type(src)) + 0.5;
+  pos_corrected.select(1,1) = idx_y.toType(infer_type(src)) + 0.5;
+  pos_corrected.select(1,2) = idx_z.toType(infer_type(src)) + 0.5;
 
   fwd_pos.select(1,0).masked_scatter_(maskBorder.squeeze(1), pos_corrected.select(1,0).masked_select(maskBorder.squeeze(1)));
   fwd_pos.select(1,1).masked_scatter_(maskBorder.squeeze(1), pos_corrected.select(1,1).masked_select(maskBorder.squeeze(1)));
@@ -356,11 +359,12 @@ void advectScalar
   } else {
     AT_ERROR("Advection method not supported!");
   }
- 
+
   cur_dst.masked_scatter_(maskBorder.eq(0), val.masked_select(maskBorder.eq(0)));
-  
+
   if (method != ADVECT_MACCORMACK_FLUIDNET) {
     // We're done. The forward Euler step is already in the output array.
+    s_dst = cur_dst;
   } else {
     // Otherwise we need to do the backwards step (which is a SemiLagrange
     // step on the forward data - hence we need to finish the above ops
@@ -368,9 +372,9 @@ void advectScalar
  
     // Manta zeros stuff on the border.
     bwd.masked_fill_(maskBorder, 0);
-    pos_corrected.select(1,0) = idx_x + 0.5;
-    pos_corrected.select(1,1) = idx_y + 0.5;
-    pos_corrected.select(1,2) = idx_z + 0.5;
+    pos_corrected.select(1,0) = idx_x.toType(infer_type(src))+ 0.5;
+    pos_corrected.select(1,1) = idx_y.toType(infer_type(src))+ 0.5;
+    pos_corrected.select(1,2) = idx_z.toType(infer_type(src))+ 0.5;
 
     bwd_pos.masked_scatter_(maskBorder, pos_corrected.masked_select(maskBorder));
     
@@ -383,14 +387,17 @@ void advectScalar
     }
     // Now compute the correction.
     s_dst = MacCormackCorrect(flags, src, fwd, bwd, maccormack_strength, is_levelset);
-   
+  
     // Now perform the clamping.
+
     if (method == ADVECT_MACCORMACK_FLUIDNET) {
       s_dst.masked_scatter_(maskBorder.ne(1),
           MacCormackClampFluidNet(flags, U, s_dst, src, fwd, fwd_pos, bwd_pos,
           sample_outside_fluid).masked_select(maskBorder.ne(1))); 
     }
   }
+
+
 }
 
 // ****************************************************************************
@@ -425,14 +432,15 @@ T SemiLagrangeEulerFluidNetMAC
 
   T pos = infer_type(src).zeros({bsz, 3, d, h, w});
 
-  pos.select(1,0) = i + 0.5;
-  pos.select(1,1) = j + 0.5;
-  pos.select(1,2) = k + 0.5;
+  pos.select(1,0) = i.toType(infer_type(src)) + 0.5;
+  pos.select(1,1) = j.toType(infer_type(src)) + 0.5;
+  pos.select(1,2) = k.toType(infer_type(src)) + 0.5;
 
   // FluidNet: We floatly want to clamp to the SMALLEST of the steps in each
   // dimension, however this is OK for now (because doing so would expensive)...
   T xpos;
   calcLineTrace(pos, zero.masked_scatter_(mask, fluid::ten::getAtMACX(vel)) * (-dt), flags, xpos, line_trace);
+
   const T vx = fluid::ten::interpolComponent(src, xpos, 0);
 
   T ypos;
@@ -513,6 +521,7 @@ T doClampComponentMAC
   T ret = zeros_like(fwd);
 
   T minv = full_like(flags.toType(at::kFloat), INFINITY);
+
   T maxv = full_like(flags.toType(at::kFloat), -INFINITY);
   // forward and backward
   std::vector<T> positions;
@@ -528,7 +537,7 @@ T doClampComponentMAC
     T i0 = curr_pos.select(1,0).clamp(0, flags.size(4) - 2).toType(at::kLong);
     T j0 = curr_pos.select(1,1).clamp(0, flags.size(3) - 2).toType(at::kLong);
     T k0 = curr_pos.select(1,2).clamp(0,
-                      is3D ? (flags.size(2) - 2) : 1).toType(at::kLong);
+                      is3D ? (flags.size(2) - 2) : 0).toType(at::kLong);
     T i1 = i0 + 1;
     T j1 = j0 + 1;
     T k1 = (is3D) ? (k0 + 1) : k0;
@@ -560,49 +569,50 @@ T doClampComponentMAC
     T c = infer_type(i0).scalarTensor(chan);
 
     NotInBounds = NotInBounds.unsqueeze(1);
-    T InBounds = 1 - NotInBounds;
+    T InBounds = NotInBounds.ne(1);
+
     ret.masked_scatter_(NotInBounds, fwd.masked_select(NotInBounds));
     maskRet.masked_fill_(NotInBounds, 0);
-
+    
     // find min/max around source position
-
     T orig000 = orig.index({idx_b, c, k0, j0, i0}).unsqueeze(1);
-    minv.masked_scatter_(InBounds, at::max(minv, orig000).masked_select(InBounds));
-    maxv.masked_scatter_(InBounds, at::min(maxv, orig000).masked_select(InBounds));
-
+    minv.masked_scatter_(InBounds, at::min(minv, orig000).masked_select(InBounds));
+    maxv.masked_scatter_(InBounds, at::max(maxv, orig000).masked_select(InBounds));
+    
     T orig100 = orig.index({idx_b, c, k0, j0, i1}).unsqueeze(1);
-    minv.masked_scatter_(InBounds, at::max(minv, orig100).masked_select(InBounds));
-    maxv.masked_scatter_(InBounds, at::min(maxv, orig100).masked_select(InBounds));
+    minv.masked_scatter_(InBounds, at::min(minv, orig100).masked_select(InBounds));
+    maxv.masked_scatter_(InBounds, at::max(maxv, orig100).masked_select(InBounds));
 
     T orig010 = orig.index({idx_b, c, k0, j1, i0}).unsqueeze(1);
-    minv.masked_scatter_(InBounds, at::max(minv, orig010).masked_select(InBounds));
-    maxv.masked_scatter_(InBounds, at::min(maxv, orig010).masked_select(InBounds));
+    minv.masked_scatter_(InBounds, at::min(minv, orig010).masked_select(InBounds));
+    maxv.masked_scatter_(InBounds, at::max(maxv, orig010).masked_select(InBounds));
 
     T orig110 = orig.index({idx_b, c, k0, j1, i1}).unsqueeze(1);
-    minv.masked_scatter_(InBounds, at::max(minv, orig110).masked_select(InBounds));
-    maxv.masked_scatter_(InBounds, at::min(maxv, orig110).masked_select(InBounds));
+    minv.masked_scatter_(InBounds, at::min(minv, orig110).masked_select(InBounds));
+    maxv.masked_scatter_(InBounds, at::max(maxv, orig110).masked_select(InBounds));
 
     if (is3D) {
       T orig001 = orig.index({idx_b, c, k1, j0, i0}).unsqueeze(1);
-      minv.masked_scatter_(InBounds, at::max(minv, orig001).masked_select(InBounds));
-      maxv.masked_scatter_(InBounds, at::min(maxv, orig001).masked_select(InBounds));
+      minv.masked_scatter_(InBounds, at::min(minv, orig001).masked_select(InBounds));
+      maxv.masked_scatter_(InBounds, at::max(maxv, orig001).masked_select(InBounds));
 
       T orig101 = orig.index({idx_b, c, k1, j0, i1}).unsqueeze(1);
-      minv.masked_scatter_(InBounds, at::max(minv, orig101).masked_select(InBounds));
-      maxv.masked_scatter_(InBounds, at::min(maxv, orig101).masked_select(InBounds));
+      minv.masked_scatter_(InBounds, at::min(minv, orig101).masked_select(InBounds));
+      maxv.masked_scatter_(InBounds, at::max(maxv, orig101).masked_select(InBounds));
 
       T orig011 = orig.index({idx_b, c, k1, j1, i0}).unsqueeze(1);
-      minv.masked_scatter_(InBounds, at::max(minv, orig011).masked_select(InBounds));
-      maxv.masked_scatter_(InBounds, at::min(maxv, orig011).masked_select(InBounds));
+      minv.masked_scatter_(InBounds, at::min(minv, orig011).masked_select(InBounds));
+      maxv.masked_scatter_(InBounds, at::max(maxv, orig011).masked_select(InBounds));
 
       T orig111 = orig.index({idx_b, c, k1, j1, i1}).unsqueeze(1);
-      minv.masked_scatter_(InBounds, at::max(minv, orig111).masked_select(InBounds));
-      maxv.masked_scatter_(InBounds, at::min(maxv, orig111).masked_select(InBounds));
+      minv.masked_scatter_(InBounds, at::min(minv, orig111).masked_select(InBounds));
+      maxv.masked_scatter_(InBounds, at::max(maxv, orig111).masked_select(InBounds));
     }
   }
   // clamp dst
   ret.masked_scatter_(maskRet, at::max(dst, minv.unsqueeze(1)).masked_select(maskRet));
   ret.masked_scatter_(maskRet, at::min(dst, maxv.unsqueeze(1)).masked_select(maskRet));
+ 
   return ret;
 }
 

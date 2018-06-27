@@ -55,25 +55,29 @@ void setWallBcsForward
   T mNotFluidNotObs = cur_fluid.ne(1).__and__(cur_obs.ne(1));
   mCont.masked_fill_(mNotFluidNotObs, 0);
 
-  T obst100 = zeroBy.where( i <= 0, (flags.index({idx_b, zero, k, j, i-1}).eq(TypeObstacle))).__and__(mCont);
+  T i_l = zero.where( (i <=0), i - 1);
+  T obst100 = zeroBy.where( i <= 0, (flags.index({idx_b, zero, k, j, i_l}).eq(TypeObstacle))).__and__(mCont);
   U.select(1,0).masked_fill_(obst100, 0);
 
-  T obs_fluid100 = zeroBy.where( i <= 0, (flags.index({idx_b, zero, k, j, i-1}).eq(TypeFluid))).
+  T obs_fluid100 = zeroBy.where( i <= 0, (flags.index({idx_b, zero, k, j, i_l}).eq(TypeFluid))).
    __and__(cur_obs).__and__(mCont);
   U.select(1,0).masked_fill_(obs_fluid100, 0);
 
-  T obst010 = zeroBy.where( j <= 0, (flags.index({idx_b, zero, k, j-1, i}).eq(TypeObstacle))).__and__(mCont);
+  T j_l = zero.where( (j <= 0), j - 1);
+  T obst010 = zeroBy.where( j <= 0, (flags.index({idx_b, zero, k, j_l, i}).eq(TypeObstacle))).__and__(mCont);
   U.select(1,1).masked_fill_(obst010, 0);
 
-  T obs_fluid010 = zeroBy.where( j <= 0, (flags.index({idx_b, zero, k, j-1, i}).eq(TypeFluid))).
+  T obs_fluid010 = zeroBy.where( j <= 0, (flags.index({idx_b, zero, k, j_l, i}).eq(TypeFluid))).
    __and__(cur_obs).__and__(mCont);
   U.select(1,1).masked_fill_(obs_fluid010, 0);
 
   if (is3D) {
-    T obst001 = zeroBy.where( k <= 0, (flags.index({idx_b, zero, k-1, j, i}).eq(TypeObstacle))).__and__(mCont);
+    T k_l = zero.where( (k <= 0), k - 1);
+
+    T obst001 = zeroBy.where( k <= 0, (flags.index({idx_b, zero, k_l, j, i}).eq(TypeObstacle))).__and__(mCont);
     U.select(1,2).masked_fill_(obst001, 0);
 
-    T obs_fluid001 = zeroBy.where( k <= 0, (flags.index({idx_b, zero, k-1, j, i}).eq(TypeFluid))).
+    T obs_fluid001 = zeroBy.where( k <= 0, (flags.index({idx_b, zero, k_l, j, i}).eq(TypeFluid))).
    __and__(cur_obs).__and__(mCont);
     U.select(1,2).masked_fill_(obs_fluid001, 0);
   }

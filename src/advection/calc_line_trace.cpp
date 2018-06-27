@@ -271,7 +271,6 @@ void calcLineTrace(const T& pos, const T& delta, const T& flags,
   // If we are ALREADY in an obstacle segment, don't go further (mask continue = false)
   T isBlocked = isBlockedCell(pos, flags);
   mCont.masked_fill_(isBlocked, 0);
-  
   new_pos = pos.clone();
   const T length = delta.norm(2, 1, true); // L2 norm in dimension 1 keeping dimension.
 
@@ -287,7 +286,6 @@ void calcLineTrace(const T& pos, const T& delta, const T& flags,
   // Only for the non-stopped cells (maskStop is false).
   T dt = at::zeros_like(delta);
   dt.masked_scatter_(mCont, (delta/length).masked_select(mCont));
-
   // Tompson: We start the line search, by stepping a unit length along the
   // vector and checking the neighbours.
   //
@@ -310,7 +308,6 @@ void calcLineTrace(const T& pos, const T& delta, const T& flags,
   while (!mCont.equal(zeros_like(mCont))) {
     T reachedLength = (cur_length >= length - hit_margin).__and__(mCont);
     mCont.masked_fill_(reachedLength, 0);
-
     if (mCont.equal(zeros_like(mCont))) {
       break;
     }
@@ -322,7 +319,6 @@ void calcLineTrace(const T& pos, const T& delta, const T& flags,
     // Now check if we went too far,
     // There are two possible cases. We've either stepped out of the domain or
     // entered a blocked cell.
-   
     // Case 1. 'next_pos' exits the grid.
     {
       T mOutDom = isOutOfDomain(next_pos, flags).__and__(mCont);
@@ -362,7 +358,6 @@ void calcLineTrace(const T& pos, const T& delta, const T& flags,
       // Continue on to case 2. 
       next_pos.masked_scatter_(isBlocked.__and__(mCont), ipos.masked_select(isBlocked.__and__(mCont)));
     }
-   
     // Case 2. next_pos enters a blocked cell.
     {
       T mBlock = isBlockedCell(next_pos, flags).__and__(mCont);
@@ -424,7 +419,6 @@ void calcLineTrace(const T& pos, const T& delta, const T& flags,
   mCont.masked_fill_(reachedLength, 0);
     
   }
-
   return;
 }
 
