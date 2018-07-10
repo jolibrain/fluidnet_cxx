@@ -78,4 +78,10 @@ void velocityDivergenceForward(T& U, T& flags, T& UDiv) {
   UDiv.masked_fill_(mask_obst, 0);
 }
 
-} // namespace fluid  
+} // namespace fluid 
+
+PYBIND11_MODULE(library, m) {
+  m.def("velocityDivergenceForward", &at::native
+}   
+
+}

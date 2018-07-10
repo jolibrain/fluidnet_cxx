@@ -41,7 +41,7 @@ bool loadMantaFile
   if(file.fail()) {
       std::cout << "Unable to open the data file!!!" <<std::endl;
       std::cout << "Please make sure your bin file is in the same location as the program!"<< std::endl;
-      return(false);  
+      return(false);
   }
   
   int transpose = 0;
