@@ -1,5 +1,6 @@
 plot
 model
+data
 __pycache__
 pybind11
 *.pyc

@@ -9,11 +9,11 @@ import torch
 # This function mimics correctVelocity in Manta.
 # Velocity update is done IN-PLACE.
 #
+# input p - scalar pressure field.
 # input U - vel field (size(2) can be 2 or 3, indicating 2D / 3D)
 # input flags - input occupancy grid
-# input p - scalar pressure field.
 
-def velocityUpdate(U, flags, pressure):
+def velocityUpdate(pressure, U, flags):
     # Check arguments.
     assert U.dim() == 5 and flags.dim() == 5 and pressure.dim() == 5, \
                "Dimension mismatch"
@@ -94,8 +94,6 @@ def velocityUpdate(U, flags, pressure):
     #            [ p(i,j,k) - p(i,j-1,k) ]
     #            [ p(i,j,k) - p(i,j,k-1) ]]
     if not is3D:
-        print(U[:,:,:,1:(h-1),1:(w-1)].size())
-        print(Pijk.size())
         U[:,:,:,1:(h-1),1:(w-1)] = mask * \
             (U.narrow(4, 1, w-2).narrow(3, 1, h-2) - (Pijk - Pijk_m))
     else:

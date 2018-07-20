@@ -2,6 +2,7 @@ import torch
 
 def setWallBcs(U, flags):
 
+    cuda = torch.device('cuda')
     assert (U.dim() == 5 and flags.dim() == 5), 'Dimension mismatch'
     assert flags.size(1) == 1, 'flags is not a scalar'
     bsz = flags.size(0)
@@ -18,19 +19,23 @@ def setWallBcs(U, flags):
         'Size mismatch'
     assert (U.is_contiguous() and flags.is_contiguous()), 'Input is not contiguous'
 
-    TypeFluid =1
+    TypeFluid = 1
     TypeObstacle = 2
 
-    i = torch.arange(0, w).view(1,w).expand(bsz, d, h, w).type(torch.LongTensor)
-    j = torch.arange(0, h).view(1,h,1).expand(bsz, d, h, w).type(torch.LongTensor)
+    i = torch.arange(start=0, end=w, dtype=torch.long, device=cuda) \
+            .view(1,w).expand(bsz, d, h, w)
+    j = torch.arange(start=0, end=h, dtype=torch.long, device=cuda) \
+            .view(1,h,1).expand(bsz, d, h, w)
     k = torch.zeros_like(i)
     if (is3D):
-        k = torch.arange(0, d).view(1,d,1,1).expand(bsz, d, h, w).type(torch.LongTensor)
+        k = torch.arange(start=0, end=d, dtype=torch.long, device=cuda) \
+                .view(1,d,1,1).expand(bsz, d, h, w)
 
     zero = torch.zeros_like(i)
-    zeroBy = zero.type(torch.ByteTensor)
+    zeroBy = torch.zeros(i.size(), dtype=torch.uint8, device=cuda)
 
-    idx_b = torch.arange(0, bsz).view(bsz, 1, 1, 1).expand(bsz,d,h,w).type(torch.LongTensor)
+    idx_b = torch.arange(start=0, end=bsz, dtype=torch.long, device=cuda) \
+                .view(bsz, 1, 1, 1).expand(bsz,d,h,w)
 
     mCont = torch.ones_like(zeroBy)
 

@@ -5,7 +5,7 @@ import glob
 
 
 # Load numpy arrays
-assert (len(sys.argv) == 2), 'Usage: python3 plot_loss.py [plotDirName]'
+assert (len(sys.argv) == 2), 'Usage: python3 plot_loss.py <plotDirName>'
 assert (glob.os.path.exists(sys.argv[1])), 'Directory ' + str(sys.argv[1]) + ' does not exists'
 
 save_dir = sys.argv[1]
