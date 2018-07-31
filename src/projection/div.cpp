@@ -80,8 +80,3 @@ void velocityDivergenceForward(T& U, T& flags, T& UDiv) {
 
 } // namespace fluid 
 
-PYBIND11_MODULE(library, m) {
-  m.def("velocityDivergenceForward", &at::native
-}   
-
-}

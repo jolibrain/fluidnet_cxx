@@ -6,77 +6,86 @@
 #include "load_manta_data.h"
 #include "plot_utils.h"
 #include "fluid.h"
+#include "init.cpp"
 
-//void advectFluidNet(){
-//   for (int dim = 2; dim < 4; dim++){
-//      // Do advection using the 2 parameters and check against Manta.
-//      std::vector<std::string> m_list = {"eulerFluidNet", "maccormackFluidNet"};
-//      for (auto const& method: m_list){
-//         for (int sampleOutsideFluid = 0; sampleOutsideFluid < 2; sampleOutsideFluid++){
-//           std::string fn = std::to_string(dim) + "d_initial.bin";
-//           at::Tensor p;
-//           at::Tensor U;
-//           at::Tensor flags;
-//           at::Tensor density;
-//           bool is3D;
-//
-//           loadMantaBatch(fn, p, U, flags, density, is3D);
-//           at::Tensor s_dst = zeros_like(density);
-//           at::Tensor U_dst = zeros_like(U);
-//
-//           float dt = 0.1;
-//           const int bnd = 1;
-//           at::Tensor maccormack_strength = CPU(at::kFloat).rand({}); // default in [0,1]
-//           float str = at::Scalar(maccormack_strength).toFloat();
-//           assertNotAllEqual(p);
-//           at::Tensor density_CUDA = density.toBackend(at::Backend::CUDA);
-//           at::Tensor U_CUDA = U.toBackend(at::Backend::CUDA);
-//           at::Tensor flags_CUDA = flags.toBackend(at::Backend::CUDA);
-//           at::Tensor s_dst_CUDA = s_dst.toBackend(at::Backend::CUDA);
-//           at::Tensor U_dst_CUDA = U_dst.toBackend(at::Backend::CUDA);
-//
-//
-//           fluid::advectScalar(dt, density, U, flags, method, s_dst,
-//               true, str, bnd);
-//           fluid::advectVel(dt, U, flag, method, U_dst, str, bnd);
-//
-//           fluid::advectScalar(dt, density_CUDA, U_CUDA, flags_CUDA, method, s_dst_CUDA,
-//                sampleOutsideFluid, str, bnd);
-//           fluid::advectVel(dt, U_CUDA, flags_CUDA, method, U_dst_CUDA, str, bnd);
-//
-//           AT_ASSERT(s_dst_CUDA.toBackend(at::Backend::CPU).equal(s_dst), "CPU and CUDA implementations are not equal for advect scalar!");
-//           AT_ASSERT(U_dst_CUDA.toBackend(at::Backend::CPU).equal(U_dst), "CPU and CUDA implementations are not equal for advect velocity!");
-//
-//          }
-//      }
-//   }
-//}
-//
-//void advectFluidNet(){
-//   for (int dim = 2; dim < 4; dim++){
-//      // Do advection using the 2 parameters and check against Manta.
-//      std::vector<std::string> m_list = {"eulerFluidNet", "maccormackFluidNet"};
-//      for (auto const& method: m_list){
-//         for (int sampleOutsideFluid = 0; sampleOutsideFluid < 2; sampleOutsideFluid++){
-//           std::string fn = std::to_string(dim) + "d_initial.bin";
-//           at::Tensor p;
-//           at::Tensor U;
-//           at::Tensor flags;
-//           at::Tensor density;
-//           bool is3D;
-//           
-//           loadMantaBatch(fn, p, U, flags, density, is3D);
-//           // ASSERT IS 3D
-//
-//           float dt = 0.1;
-//           int boundaryWidth = 0;
-//           at::Tensor maccormackStrength = CPU(at::kFloat).rand({1}); // default in [0,1]
-//           assertNotAllEqual(p);
-//         
-//         }
-//      } 
-//   } 
-//}
+// We don't have Manta data to compare advection of scalar and velocity. 
+// Therefore we compare to the original FluidNet code, in "init.cpp".
+// TODO (aalgua): For now, only 2D is debugged!! We have to debug 3D.
+void advectFluidNet(){
+    auto && realCPU = CPU(at::kFloat);
+    auto && realCUDA = CUDA(at::kFloat);
+
+   for (int dim = 2; dim < 3; dim++){
+      // Do advection using the 2 parameters and check against Manta.
+      std::vector<std::string> m_list = {"maccormackFluidNet"};
+      for (auto const& method: m_list){
+         for (int sampleOutsideFluid = 0; sampleOutsideFluid < 1; sampleOutsideFluid++){
+           std::string fn = std::to_string(dim) + "d_initial.bin";
+           at::Tensor p;
+           at::Tensor U;
+           at::Tensor flags;
+           at::Tensor density;
+           bool is3D;
+
+           loadMantaBatch(fn, p, U, flags, density, is3D);
+           U = U.toType(realCPU);
+           p = p.toType(realCPU);
+           flags = flags.toType(realCPU);
+           density = density.toType(realCPU);
+
+           at::Tensor s_dst = at::zeros_like(density);
+           at::Tensor s_dst_old = at::zeros_like(density);
+           at::Tensor U_dst = at::zeros_like(U);
+           at::Tensor U_dst_old = at::zeros_like(U);
+
+           // Use the following tensors to rise variables from deeper levels of 
+           // fluidnet code to the this high level test function.
+           // You can go deeper modifying functions in tfluids.cpp and others cpp files
+           // so that they take in/out tensors as references. This is useful to
+           // debug and compare to our own implementation.
+           at::Tensor temp = realCPU.zeros({U.size(0),3,U.size(2),U.size(3),U.size(4)});
+           at::Tensor temp_CUDA = realCUDA.zeros({U.size(0),3,U.size(2),U.size(3),U.size(4)});
+
+           float dt = 0.1;
+           const int bnd = 1;
+           at::Tensor maccormack_strength = realCPU.rand({}); // default in [0,1]
+           float str = at::Scalar(maccormack_strength).toFloat();
+           assertNotAllEqual(p);
+           at::Tensor density_CUDA = density.clone().toBackend(at::Backend::CUDA);
+           at::Tensor U_CUDA = U.clone().toBackend(at::Backend::CUDA);
+           at::Tensor flags_CUDA = flags.clone().toBackend(at::Backend::CUDA);
+           at::Tensor s_dst_CUDA = s_dst.clone().toBackend(at::Backend::CUDA);
+           at::Tensor U_dst_CUDA = U_dst.clone().toBackend(at::Backend::CUDA);
+
+           tfluids_(Main_advectScalar)(dt, flags, U, density, false, s_dst, temp,
+                   method, bnd, sampleOutsideFluid, str);
+           tfluids_(Main_advectVel)(dt, flags, U, false,  U_dst, temp, method, bnd, str);
+           fluid::advectScalar(dt, density_CUDA, U_CUDA, flags_CUDA, s_dst_CUDA, method,
+                1, sampleOutsideFluid, str);
+           fluid::advectVel(dt, U_CUDA, flags_CUDA, U_dst_CUDA, method, bnd,  str);
+
+           at::Tensor err = U_dst.toType(realCPU) - U_dst_CUDA.toType(realCPU);
+           at::Tensor err_s = s_dst.toType(realCPU) - s_dst_CUDA.toType(realCPU);
+           
+           float err_abs = at::Scalar(at::max(at::abs(err))).toFloat();
+           float precision = 1e-6; 
+
+           std::string ss = "Test " + std::to_string(dim) + "d " + 
+             ": FAILED (max error is " + std::to_string(err_abs) + ").";
+           const char *css = ss.c_str();
+           AT_ASSERT(err_abs < precision, css);
+
+           float err_abs_s = at::Scalar(at::max(at::abs(err_s))).toFloat();
+
+           ss = "Test " + std::to_string(dim) + "d " + 
+             ": FAILED (max error is " + std::to_string(err_abs) + ").";
+           css = ss.c_str();
+           AT_ASSERT(err_abs_s < precision, css);
+          }
+      }
+   }
+   std::cout << "Advect ----------------------- [PASS]" << std::endl;
+}
 
 void createJacobianTestData(at::Tensor& p, at::Tensor& U, at::Tensor& flags,
                              at::Tensor& density) {
@@ -165,8 +174,8 @@ void testSetWallBcs(int dim, std::string fnInput, std::string fnOutput) {
 void setWallBcs() {
   for (int dim = 2; dim < 3; dim++){
     testSetWallBcs(dim, "advect.bin", "setWallBcs1.bin");
-    //testSetWallBcs(dim, "gravity.bin", "setWallBcs2.bin");
-    //testSetWallBcs(dim, "solvePressure.bin", "setWallBcs3.bin");
+    testSetWallBcs(dim, "gravity.bin", "setWallBcs2.bin");
+    testSetWallBcs(dim, "solvePressure.bin", "setWallBcs3.bin");
   }
    std::cout << "Set Wall Bcs ----------------------- [PASS]" << std::endl;
 }
@@ -260,8 +269,7 @@ void velocityUpdate() {
 
 }
 at::Tensor getGravity(int dim, at::Tensor& flags) {
-   fluid::FlagGrid flag(flags, (dim == 3));
-   float gStrength = flag.getDx() / 4;
+   float gStrength = fluid::getDx(flags) / 4;
    at::Tensor gravity = CPU(at::kFloat).arange(1,4);
    if (dim == 2) {
       gravity[2] = 0;
@@ -436,152 +444,11 @@ void solveLinearSystemJacobi() {
 
 int main(){
 
-//auto && Tfloat = CPU(kFloat);
-//auto && Tint   = CPU(kInt);
-//auto && Tbyte  = CPU(kByte);
-//
-//int nbatch = 1;
-//int bnd    = 1;
-//int depth  = 1;
-//int height = 6;
-//int width  = 5;
-//bool is3D = ((depth == 1)? false: true);
-//
-//Tensor flagsGT = Tfloat.ones({nbatch, 1, depth, height, width});
-//Tensor vel =     Tfloat.rand({nbatch, is3D? 3:2, depth, height, width}) * 10;
-//Tensor rho =     Tfloat.zeros({nbatch, 1, depth, height, width});
-//Tensor rho_dst = Tfloat.zeros({nbatch, 1, depth, height, width});
-//Tensor vel_dst = Tfloat.zeros({nbatch, is3D? 3:2, depth, height, width});
-//
-//Tensor p =            Tfloat.zeros({nbatch, 1, depth, height, width});     
-//Tensor div =          Tfloat.zeros({nbatch, 1, depth, height, width});
-//Tensor div_test =     Tfloat.zeros({nbatch, 1, depth, height, width});
-//
-////vel.select(1,0) = 1;
-////vel.select(1,2) = 0;
-//
-//flagsGT.select(3, 0) = 2;
-//flagsGT.select(3, height-1) = 2;
-//flagsGT.select(4,0) = 2;
-//flagsGT.select(4, width-1) = 2;
-////
-////flagsGT[0][0][0][2][3] = TypeObstacle;
-//
-////vel.select(1,0) = 1;
-////vel.select(1,1) = 1;
-////vel.select(4,0) = 0;
-////vel.select(4, width-1) = 0;
-////vel.select(3, 0) = 0;
-////vel.select(3, height-1) = 0;
-////std::cout << "Flag grid: " << std::endl;
-////std::cout << flagsGT << std::endl;
-////std::cout << "\n";
-//
-//FlagGrid flag(flagsGT, is3D);
-
-//vel *= 2.14;
-//std::cout << "Vel before: " << std::endl;
-//std::cout << vel << std::endl;
-//std::cout << "\n";
-//std::cout << "Setting wall boundary conditions..." << std::endl;
-//setWallBcsForward(flagsGT, vel, false);
-//std::cout << "\n";
-//std::cout << "Vel after" << std::endl;
-//std::cout << vel << std::endl;
-//std::cout << "\n";
-
-//std::cout << "Advection of scalar ..." << std::endl;
-//const std::string method = "maccormackFluidNet";
-//
-//std::tuple<float, T&, T&, T&, T&, T&, T&, T&, T&,
-//           bool, std::string, int32_t, bool, float>
-//             args{1., flagsGT, vel, rho, rho_dst, fwd, bwd, fwd_pos,
-//                  bwd_pos, false, method, 1, false, 1.};
-//
-//
-//  test::save_it_for_later<float, T&, T&, T&, T&, T&, T&, T&, T&,
- //          bool, std::string, int32_t, bool, float> saved = {args, advectScalar};
-
-//advectScalar(std::get<0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13>(args)...);
-
-//test::profileAndTestCuda(advectScalar, 1., flagsGT, vel, rho, rho_dst, fwd, bwd, fwd_pos,
-//                   bwd_pos, false, "maccormackFluidNet", 1, false, 1);
-//advectScalar(1., flagsGT, vel, rho, rho_dst, fwd, bwd, fwd_pos,
-//             bwd_pos, false, "maccormackFluidNet", 1, false, 1); 
-//std::cout << "\n";
-//std::cout << "Advection of velocity ..." << std::endl;
-//advectVel(1., flagsGT, vel, vel_dst, fwd_u, bwd_u,
-//          false, "maccormackFluidNet", 1, 1); 
-//std::cout << "\n";
-
-//std::cout << "Initial rho : " << std::endl;
-//std::cout << rho << std::endl;
-//std::cout << "\n";
-//
-//std::cout << "Advected Scalar field : " << std::endl;
-//std::cout << rho_dst << std::endl;
-//std::cout << "\n";
-//std::cout << vel << std::endl;
-
-//std::cout << "Divergence calculation ..." << std::endl;
-//velocityDivergenceForward(vel, flagsGT, div);
-//std::cout << "\n";
-//std::cout << div << std::endl;
-
-//std::cout << div << std::endl;
-
-//std::cout << "Solving Linear System ..." << std::endl;
-//solveLinearSystemJacobi(&p, &flagsGT, &div, &p_prev, &p_delta, &p_delta_norm,
-//                        false, 0.0001, 34, false);
-//std::cout << "\n";
-
-//std::cout << "Pressure : " << std::endl;
-//std::cout << p << std::endl;
-//std::cout << "\n";
-//
-//std::cout << "Update velocity forward ..." << std::endl;
-//velocityUpdateForward(flagsGT, vel, p, false);
-//std::cout << "\n";
-//
-//velocityDivergenceForward(vel, flagsGT, div_test);
-//std::cout << "Final divergence : " << std::endl;
-//std::cout << div_test << std::endl;
-//std::cout << "\n";
-
-//std::cout << "Advected scalar field : " << std::endl;
-//std::cout << rho_dst <<std::endl;
-//std::cout << "\n";
-//std::cout << "Forward pos : " << std::endl;
-//std::cout << fwd_pos << std::endl; 
-//std::cout << "\n";
-
-//Tensor p_read;
-//Tensor U_read;
-//Tensor flags_read;
-//Tensor density_read;
-
-//plotTensor2D(p_read, 517, 517);
-//plotTensor2D(U_read.select(1,0), 516, 517);
-//plotTensor2D(U_read.select(1,1), 516, 517);
-//plotTensor2D(density_read, 517, 517, "density");
-//plotTensor2D(density_read.select(1,0), 516, 516);
-//#pragma omp for
-//for(int n=0; n<10; ++n)
-//{
-//   int this_thread = omp_get_thread_num();
-//   //int num_threads = omp_get_threads();
-//   std::string ss = "Thread " + std::to_string(this_thread) + "%d"; 
-//          // + " out of " + std::to_string(num_threads);
-//   const char* css = ss.c_str();
-//   printf(css, n);
-//   printf(" %d", n);
-//}
-//printf(".\n");
-
+advectFluidNet();
 setWallBcs();
-//velocityDivergence();
-///velocityUpdate();
-//solveLinearSystemJacobi();
-//addBuoyancy();
-//addGravity();
+velocityDivergence();
+velocityUpdate();
+solveLinearSystemJacobi();
+addBuoyancy();
+addGravity();
 }

@@ -1,16 +1,20 @@
+IF (FLUID_TEST)
+    SET(TFLUIDS
+         fluidnet_implementation/init.cpp
+         fluidnet_implementation/advect_type.cpp
+       )
+ELSE ()
+    SET(TFLUIDS )
+ENDIF()
+
 SET(GRID
      grid/bool_conversion.cpp
      grid/grid.cpp
-     grid/grid_new.cpp
     )
 SET(ADVECTION
      advection/advection.cpp
      advection/advect_type.cpp
      advection/calc_line_trace.cpp
-   ) 
-SET(ADVECTION_OLD
-     advection/old/advection_old.cpp
-     advection/old/calc_line_trace_old.cpp
    ) 
 SET(BCS
      boundaryCondition/bcs.cpp
@@ -23,15 +27,16 @@ SET(PROJECTION
      projection/solve_linear_sys.cpp
      projection/update_vel.cpp
    )
-ADD_LIBRARY(FluidNet SHARED ${GRID} ${ADVECTION} ${ADVECTION_OLD} ${BCS} ${STERMS} ${PROJECTION})
+ADD_LIBRARY(FluidNet SHARED ${TFLUIDS} ${GRID} ${ADVECTION} ${ADVECTION_OLD} ${BCS} ${STERMS} ${PROJECTION})
 TARGET_INCLUDE_DIRECTORIES(FluidNet
    PUBLIC
        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/grid;
        ${CMAKE_CURRENT_SOURCE_DIR}/advection;
-       ${CMAKE_CURRENT_SOURCE_DIR}/advection/old;
        ${CMAKE_CURRENT_SOURCE_DIR}/boundaryCondition;
        ${CMAKE_CURRENT_SOURCE_DIR}/sourceTerms;
        ${CMAKE_CURRENT_SOURCE_DIR}/projection;
-       ${CMAKE_CURRENT_SOURCE_DIR}>
+       ${CMAKE_CURRENT_SOURCE_DIR}/fluidnet_implementation;
+       ${CMAKE_CURRENT_SOURCE_DIR}
+       >
 )
 

@@ -49,7 +49,7 @@ void addBuoyancy
   AT_ASSERT(gravity.dim() == 1 && gravity.size(0) == 3,
            "Gravity must be a 3D vector (even in 2D)");
 
-  T strength = - gravity * (dt / fluid::ten::getDx(flags));
+  T strength = - gravity * (dt / getDx(flags));
 
   T i = infer_type(flags).arange(0, w).view({1,w}).expand({bsz, d, h, w}).toType(at::kLong);
   T j = infer_type(i).arange(0, h).view({1,h,1}).expand({bsz, d, h, w});
@@ -142,7 +142,7 @@ void addGravity
   AT_ASSERT(gravity.dim() == 1 && gravity.size(0) == 3,
            "Gravity must be a 3D vector (even in 2D)");
 
-  T force = gravity * (dt / fluid::ten::getDx(flags));
+  T force = gravity * (dt / getDx(flags));
 
   T i = infer_type(flags).arange(0, w).view({1,w}).expand({bsz, d, h, w}).toType(at::kLong);
   T j = infer_type(i).arange(0, h).view({1,h,1}).expand({bsz, d, h, w});

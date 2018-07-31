@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ATen/ATen.h"
-#include "grid/grid_new.h"
+#include "grid/grid.h"
 #include "grid/cell_type.h"
 
 namespace fluid {

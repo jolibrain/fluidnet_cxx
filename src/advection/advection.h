@@ -3,7 +3,7 @@
 #include <sstream>
 
 #include "ATen/ATen.h"
-#include "grid/grid_new.h"
+#include "grid/grid.h"
 #include "grid/cell_type.h"
 #include "advect_type.h"
 #include "calc_line_trace.h"
@@ -44,7 +44,7 @@ T getClampBounds
   const T& src, const T& pos, const T& flags,
   const bool sample_outside,
   T& clamp_min, T& clamp_max
-); 
+);
 
 T MacCormackClampFluidNet(
   T& flags, T& vel,
@@ -54,7 +54,7 @@ T MacCormackClampFluidNet(
 );
 
 // Advect scalar field 'p' by the input vel field 'u'.
-// 
+//
 // @input dt - timestep (seconds).
 // @input s - input scalar field to advect
 // @input U - input vel field (size(2) can be 2 or 3, indicating 2D / 3D)
@@ -72,11 +72,11 @@ T MacCormackClampFluidNet(
 void advectScalar
 (
   float dt, T& src, T& U, T& flags, T& s_dst,
-  const std::string method_str = "maccormackFluidNet", 
+  const std::string method_str = "maccormackFluidNet",
   int bnd = 1,
   const bool sample_outside_fluid = false,
   const float maccormack_strength = 0.75
-); 
+);
 
 T SemiLagrangeEulerFluidNetMAC
 (
@@ -111,7 +111,7 @@ T MacCormackClampMAC
 );
 
 // Advect velocity field 'u' by itself and store in uDst.
-// 
+//
 // @input dt - timestep (seconds).
 // @input U - input vel field (size(2) can be 2 or 3, indicating 2D / 3D)
 // @input flags - input occupancy grid
@@ -125,7 +125,7 @@ T MacCormackClampMAC
 void advectVel
 (
   float dt, T& U, T& flags, T& U_dst,
-  const std::string method_str = "maccormackFluidNet", 
+  const std::string method_str = "maccormackFluidNet",
   int bnd = 1,
   const float maccormack_strength = 0.75
 );

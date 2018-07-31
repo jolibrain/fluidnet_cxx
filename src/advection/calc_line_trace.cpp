@@ -27,9 +27,9 @@ T isOutOfDomain(const T& pos, const T& flags) {
 }
 
 // Returns true if the cell is blocked. In FluidNet, it couldn't be called on 
-// cells outside the domain. However here we don't have any option as we are always
+// cells outside the domain. However here we are always
 // working with the complete pos tensor. Therefore we work with masks and
-// if outOfDomain, return false.
+// if pos is outOfDomain, we return false.
 T isBlockedCell(const T& pos, const T& flags) {
 
   AT_ASSERT(at::isFloatingType(infer_type(pos).scalarType()), "Error: isBlockedCell expects floating type tensor for pos argument");
@@ -196,7 +196,7 @@ T calcRayBorderIntersection(const T& pos, const T& next_pos,
    //   --> gamma_i = (m - pos_i) / (next_pos_i - pos_i)
 
    // minimum step only has ONE channel
-   T min_step = full_like(flags.squeeze(1).toType(at::kFloat), INFINITY);
+   T min_step = full_like(flags.squeeze(1).toType(infer_type(pos)), INFINITY);
 
    // Left Face
    T maskLF = next_pos.select(1,0) <= hit_margin;
@@ -277,7 +277,6 @@ void calcLineTrace(const T& pos, const T& delta, const T& flags,
   // We are not being asked to step anywhere. Set mask continue to false.
   T infToEps = (length <= epsilon).__and__(mCont);
   mCont.masked_fill_(infToEps, 0);
-  
   // The rest of cells are the ones having a true mask in mCont.
   // We will perform the ops on those cells. 
   // The rest of the cells are stopped, i.e mCont is false.

@@ -1,0 +1,28 @@
+CMAKE_MINIMUM_REQUIRED(VERSION 3.0)
+PROJECT("advection" LANGUAGES CXX)
+
+SET(CMAKE_BUILD_TYPE Release)
+
+# Include manually ATen
+SET(ATEN_INCLUDE_DIR "/usr/local/lib/python3.5/dist-packages/torch/lib/include")
+LINK_DIRECTORIES("/usr/local/lib/python3.5/dist-packages/torch/lib/")
+INCLUDE_DIRECTORIES(${ATEN_INCLUDE_DIR})
+
+FIND_PACKAGE(OpenMP)
+IF (OPENMP_FOUND)
+    SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} -Wall -ggdb -std=c++11")
+    SET (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+ENDIF()
+
+
+SET(SIM_SRC init.cpp)
+
+ADD_EXECUTABLE(fluidnet_sim ${SIM_SRC})
+
+TARGET_INCLUDE_DIRECTORIES(fluidnet_sim PUBLIC
+       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+)
+LINK_DIRECTORIES(fluidnet_sim $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+TARGET_LINK_LIBRARIES(fluidnet_sim ATen)
+

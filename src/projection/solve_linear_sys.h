@@ -1,6 +1,7 @@
 #pragma once
 
 #include "grid/grid.h"
+#include "grid/cell_type.h"
 
 namespace fluid {
 

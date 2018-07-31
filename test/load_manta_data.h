@@ -121,7 +121,7 @@ bool loadMantaFile
 std::vector<std::string> globVector(const std::string& pattern){
     glob_t glob_result;
     std::memset(&glob_result, 0, sizeof(glob_result));
-    
+
     int rtrn_val = glob(pattern.c_str(), GLOB_TILDE, NULL, &glob_result);
     if(rtrn_val != 0) {
        globfree(&glob_result);

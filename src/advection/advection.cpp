@@ -1,15 +1,8 @@
 #include "advection.h"
 
-#include "advect_type.h"
-#include "calc_line_trace.h"
-#include "grid/cell_type.h"
-#include "grid/grid_new.h"
-
 namespace fluid {
 
 typedef at::Tensor T;
-
-// TODO: eliminate fluid::ten:: namespace
 
 // ****************************************************************************
 // Advect Scalar
@@ -47,23 +40,22 @@ T SemiLagrangeEulerFluidNet
   T displacement = zeros_like(pos);
  
   // getCentered already eliminates border cells, no need to perform a masked select.
-  displacement.masked_scatter_(maskBorder.ne(1), fluid::ten::getCentered(vel));
+  displacement.masked_scatter_(maskBorder.ne(1), getCentered(vel));
   displacement.mul_(-dt);
  
   // Calculate a line trace from pos along displacement.
   // NOTE: this is expensive (MUCH more expensive than Manta's routines), but
   // can avoid some artifacts which would occur sampling into Geometry.
- 
   T back_pos;
-  calcLineTrace(pos, displacement, flags, back_pos, line_trace);
- 
+  calcLineTrace(pos, displacement, flags, back_pos,line_trace);
+  
   // Finally, sample the field at this back position.
   if (!sample_outside_fluid) {
     ret.masked_scatter_(maskFluid,
-         fluid::ten::interpolWithFluid(src, flags, back_pos).masked_select(maskFluid));
+         interpolWithFluid(src, flags, back_pos).masked_select(maskFluid));
   } else {
     ret.masked_scatter_(maskFluid,
-         fluid::ten::interpol(src, back_pos).masked_select(maskFluid));
+         interpol(src, back_pos).masked_select(maskFluid));
   }
   return ret;
 }
@@ -99,15 +91,10 @@ T SemiLagrangeEulerFluidNetSavePos
   start_pos.select(1,1) = j.toType(infer_type(src)) + 0.5;
   start_pos.select(1,2) = k.toType(infer_type(src)) + 0.5;
 
-  // Don't advect solid geometry.
-  pos.masked_scatter_(maskSolid, start_pos.masked_select(maskSolid)); 
-  ret.masked_scatter_(maskSolid, src.masked_select(maskSolid));
-
   T displacement = zeros_like(start_pos);
-  
+
   // getCentered already eliminates border cells, no need to perform a masked select.
-  displacement.masked_scatter_(maskBorder.ne(1), fluid::ten::getCentered(vel));
-  displacement.mul_(-dt);
+  displacement.masked_scatter_(maskBorder.ne(1), (-dt) * getCentered(vel));
 
   // Calculate a line trace from pos along displacement.
   // NOTE: this is expensive (MUCH more expensive than Manta's routines), but
@@ -120,14 +107,23 @@ T SemiLagrangeEulerFluidNetSavePos
   if (is3D) {
     pos.select(1,2).masked_scatter_(maskFluid.squeeze(1), back_pos.select(1,2).masked_select(maskFluid.squeeze(1))); 
   }
+  
+  // Don't advect solid geometry.
+  pos.select(1,0).masked_scatter_(maskSolid.squeeze(1), start_pos.select(1,0).masked_select(maskSolid.squeeze(1))); 
+  pos.select(1,1).masked_scatter_(maskSolid.squeeze(1), start_pos.select(1,1).masked_select(maskSolid.squeeze(1))); 
+  if (is3D) {
+     pos.select(1,2).masked_scatter_(maskSolid.squeeze(1), start_pos.select(1,2).masked_select(maskSolid.squeeze(1))); 
+  }
+  
+  ret.masked_scatter_(maskSolid, src.masked_select(maskSolid));
+
   // Finally, sample the field at this back position.
   if (!sample_outside_fluid) {
     ret.masked_scatter_(maskFluid,
-         fluid::ten::interpolWithFluid(src, flags, back_pos).masked_select(maskFluid));
+         interpolWithFluid(src, flags, back_pos).masked_select(maskFluid));
   } else {
-    T interp = fluid::ten::interpol(src, back_pos).squeeze(1);
-    ret.squeeze(1).masked_scatter_(maskFluid.squeeze(1),
-         interp.masked_select(maskFluid.squeeze(1)));
+    ret.masked_scatter_(maskFluid,
+         interpol(src, back_pos).masked_select(maskFluid));
   }
   return ret;
 }
@@ -142,9 +138,7 @@ T MacCormackCorrect
 {
   T dst = fwd.clone();
   T maskFluid = (flags.eq(TypeFluid));
-  
-  dst.masked_scatter_(maskFluid,
-    (dst + strength * 0.5 * (old - bwd)).masked_select(maskFluid));
+  dst.masked_scatter_(maskFluid, (dst + strength * 0.5f * (old - bwd)).masked_select(maskFluid));
 
   return dst;
 }
@@ -165,8 +159,8 @@ T getClampBounds
   int h   = flags.size(3);
   int w   = flags.size(4);
 
-  T minv = full_like(flags.toType(at::kFloat), INFINITY).squeeze(1);
-  T maxv = full_like(flags.toType(at::kFloat), -INFINITY).squeeze(1);
+  T minv = full_like(flags.toType(infer_type(src)), INFINITY).squeeze(1);
+  T maxv = full_like(flags.toType(infer_type(src)), -INFINITY).squeeze(1);
   
   T i0 = infer_type(pos).zeros({bsz, d, h, w}).toType(at::kLong);
   T j0 = infer_type(pos).zeros({bsz, d, h, w}).toType(at::kLong);
@@ -174,8 +168,8 @@ T getClampBounds
  
   i0 = clamp(pos.select(1,0).toType(at::kLong), 0, flags.size(4) - 1);
   j0 = clamp(pos.select(1,1).toType(at::kLong), 0, flags.size(3) - 1);
-  k0 = (src.size(1) > 1) ? clamp(pos.select(1,2).toType(at::kLong), 0, flags.size(2) - 1)
-        : zeros_like(i0);
+  k0 = (src.size(1) > 1) ? 
+      clamp(pos.select(1,2).toType(at::kLong), 0, flags.size(2) - 1) : zeros_like(i0);
 
   T idx_b = infer_type(i0).arange(0, bsz).view({bsz,1,1,1});
   idx_b = idx_b.expand({bsz,d,h,w});
@@ -233,10 +227,11 @@ T MacCormackClampFluidNet(
   int h = flags.size(3);
   int w = flags.size(4);
   bool is3D = (d > 1);
+
   // Calculate the clamp bounds.
   T clamp_min = full_like(src, INFINITY);
   T clamp_max = full_like(src, -INFINITY);
-  
+
   // Calculate the clamp bounds around the forward position.
   T pos = infer_type(fwd_pos).zeros({bsz, 3, d, h, w});
   pos.select(1,0) = fwd_pos.select(1,0);
@@ -256,7 +251,7 @@ T MacCormackClampFluidNet(
   // Otherwise, we found valid values with which to clamp the maccormack corrected
   // quantity. Apply this clamp.
  
-  return fwd.where(do_clamp_fwd.ne(1), at::min( clamp_max, at::max(clamp_min, dst)));
+  return fwd.where(do_clamp_fwd.ne(1), at::max( clamp_min, at::min(clamp_max, dst)));
 }
 
 // Advect scalar field 'p' by the input vel field 'u'.
@@ -300,7 +295,7 @@ void advectScalar
   AT_ASSERT((U.size(0) == bsz && U.size(2) == d &&
              U.size(3) == h && U.size(4) == w), "Size mismatch");
   AT_ASSERT(U.is_contiguous() && flags.is_contiguous() &&
-            src.is_contiguous(), "Input is not contiguous");
+           src.is_contiguous(), "Input is not contiguous");
   AT_ASSERT(s_dst.dim() == 5, "Size mismatch");
   AT_ASSERT(s_dst.is_contiguous(), "Input is not contiguous");
   AT_ASSERT(s_dst.is_same_size(src) , "Size mismatch");
@@ -359,7 +354,6 @@ void advectScalar
   } else {
     AT_ERROR("Advection method not supported!");
   }
-
   cur_dst.masked_scatter_(maskBorder.eq(0), val.masked_select(maskBorder.eq(0)));
 
   if (method != ADVECT_MACCORMACK_FLUIDNET) {
@@ -368,8 +362,7 @@ void advectScalar
   } else {
     // Otherwise we need to do the backwards step (which is a SemiLagrange
     // step on the forward data - hence we need to finish the above ops
-    // before moving on).
- 
+    // before moving on).) 
     // Manta zeros stuff on the border.
     bwd.masked_fill_(maskBorder, 0);
     pos_corrected.select(1,0) = idx_x.toType(infer_type(src))+ 0.5;
@@ -389,15 +382,12 @@ void advectScalar
     s_dst = MacCormackCorrect(flags, src, fwd, bwd, maccormack_strength, is_levelset);
   
     // Now perform the clamping.
-
     if (method == ADVECT_MACCORMACK_FLUIDNET) {
       s_dst.masked_scatter_(maskBorder.ne(1),
           MacCormackClampFluidNet(flags, U, s_dst, src, fwd, fwd_pos, bwd_pos,
           sample_outside_fluid).masked_select(maskBorder.ne(1))); 
     }
   }
-
-
 }
 
 // ****************************************************************************
@@ -406,7 +396,7 @@ void advectScalar
 
 T SemiLagrangeEulerFluidNetMAC
 (
-  T& flags, T& vel, T& src, T& mask,
+  T& flags, T& vel, T& src, T& maskBorder,
   float dt, float order_space,
   const bool line_trace,
   T& i, T& j, T& k
@@ -416,20 +406,26 @@ T SemiLagrangeEulerFluidNetMAC
   int d = flags.size(2);
   int h = flags.size(3);
   int w = flags.size(4);
-  bool is3D = (d == 3);
+  bool is3D = (d > 1);
 
-  T ret = zeros_like(src);
   T zero = zeros_like(src);
+  T ret = infer_type(src).zeros({bsz,3,d,h,w});
+  T vec3_0 = infer_type(src).zeros({bsz,3,d,h,w});
   T maskSolid = flags.ne(TypeFluid);
   T maskFluid = flags.eq(TypeFluid);
 
   AT_ASSERT(maskSolid.equal(1-maskFluid), "Masks are not complementary!");
   // Don't advect solid geometry.
-  ret.masked_scatter_(maskSolid, src.masked_select(maskSolid));
-
+  ret.select(1,0).unsqueeze(1).masked_scatter_(
+          maskSolid, src.select(1,0).unsqueeze(1).masked_select(maskSolid));
+  ret.select(1,0).unsqueeze(1).masked_scatter_(
+          maskSolid, src.select(1,1).unsqueeze(1).masked_select(maskSolid));
+  if (is3D) {
+    ret.select(1,2).unsqueeze(1).masked_scatter_(
+            maskSolid, src.select(1,2).unsqueeze(1).masked_select(maskSolid));
+  }
   // Get correct velocity at MAC position. 
   // No need to shift xpos etc. as lookup field is also shifted. 
-
   T pos = infer_type(src).zeros({bsz, 3, d, h, w});
 
   pos.select(1,0) = i.toType(infer_type(src)) + 0.5;
@@ -439,19 +435,21 @@ T SemiLagrangeEulerFluidNetMAC
   // FluidNet: We floatly want to clamp to the SMALLEST of the steps in each
   // dimension, however this is OK for now (because doing so would expensive)...
   T xpos;
-  calcLineTrace(pos, zero.masked_scatter_(mask, fluid::ten::getAtMACX(vel)) * (-dt), flags, xpos, line_trace);
-
-  const T vx = fluid::ten::interpolComponent(src, xpos, 0);
+  calcLineTrace(pos, vec3_0.masked_scatter_(maskBorder.eq(0),
+              getAtMACX(vel)) * (-dt), flags, xpos, line_trace);
+  const T vx = interpolComponent(src, xpos, 0);
 
   T ypos;
-  calcLineTrace(pos, zero.masked_scatter_(mask, fluid::ten::getAtMACX(vel)) * (-dt), flags, ypos, line_trace);
-  const T vy = fluid::ten::interpolComponent(src, ypos, 1);
+  calcLineTrace(pos, vec3_0.masked_scatter_(maskBorder.eq(0),
+              getAtMACY(vel)) * (-dt), flags, ypos,line_trace);
+  const T vy = interpolComponent(src, ypos, 1);
 
   T vz = zeros_like(vy);
   if (is3D) {
     T zpos;
-    calcLineTrace(pos, zero.masked_scatter_(mask, fluid::ten::getAtMACX(vel)) * (-dt), flags, zpos, line_trace);
-    const T vz = fluid::ten::interpolComponent(src, zpos, 1);
+    calcLineTrace(pos, vec3_0.masked_scatter_(maskBorder.eq(0),
+                getAtMACZ(vel)) * (-dt), flags, zpos,line_trace);
+    const T vz = interpolComponent(src, zpos, 2);
   }
 
   ret.masked_scatter_(maskFluid, (at::cat({vx, vy, vz}, 1)).masked_select(maskFluid));
@@ -469,7 +467,7 @@ T MacCormackCorrectMAC
   int d = flags.size(2);
   int h = flags.size(3);
   int w = flags.size(4);
-  bool is3D = (d == 3);
+  bool is3D = (d > 1);
 
   T zero = zeros_like(i);
   T zeroBy = zero.toType(at::kByte);
@@ -482,23 +480,23 @@ T MacCormackCorrectMAC
   skip.masked_fill_(maskSolid, 1);
 
   // This allows to never access negative indexes!
-  T mask0 = zeroBy.where( i <= 0, (flags.index({idx_b, zero, k, j, i-1}).ne(TypeFluid)));
+  T mask0 = zeroBy.where(i<=0, (flags.index({idx_b, zero, k, j, i-1}).ne(TypeFluid)));
   skip.select(1,0).masked_fill_(mask0, 1);
 
-  T mask1 = zeroBy.where( j <= 0, (flags.index({idx_b, zero, k, j-1, i}).ne(TypeFluid)));
+  T mask1 = zeroBy.where(j<=0, (flags.index({idx_b, zero, k, j-1, i}).ne(TypeFluid)));
   skip.select(1,1).masked_fill_(mask1, 1);
 
   if (is3D) {
-    T mask2 = zeroBy.where( k <= 0, (flags.index({idx_b, zero, k-1, j, i}).ne(TypeFluid)));
+    T mask2 = zeroBy.where(k<=0, (flags.index({idx_b, zero, k-1, j, i}).ne(TypeFluid)));
     skip.select(1,2).masked_fill_(mask2, 1);
   }
 
-  T dst = infer_type(flags).zeros({bsz, 3, d, h, w});
-
+  T dst = infer_type(flags).zeros({bsz, (is3D? 3:2), d, h, w});
   const int dim = is3D? 3 : 2;
+
   for (int c = 0; c < dim; ++c) {
-    dst.select(1,c) = fwd.select(1,c).where(skip.select(1,c),
-            fwd.select(1,c) + strength * 0.5 * (old.select(1,c) - bwd.select(1,c)));
+    dst.select(1,c) = at::where(skip.select(1,c), fwd.select(1,c),
+            fwd.select(1,c) + strength * 0.5f * (old.select(1,c) - bwd.select(1,c)));
   }
   return dst;
 }
@@ -520,14 +518,13 @@ T doClampComponentMAC
 
   T ret = zeros_like(fwd);
 
-  T minv = full_like(flags.toType(at::kFloat), INFINITY);
+  T minv = full_like(flags.toType(infer_type(dst)), INFINITY);
+  T maxv = full_like(flags.toType(infer_type(dst)), -INFINITY);
 
-  T maxv = full_like(flags.toType(at::kFloat), -INFINITY);
   // forward and backward
   std::vector<T> positions;
   positions.insert(positions.end(), (pos - vel).toType(at::kInt));
   positions.insert(positions.end(), (pos + vel).toType(at::kInt));
-
   T maskRet = ones_like(flags).toType(at::kByte);
 
   for (int l = 0; l < 2; ++l) {
@@ -538,6 +535,7 @@ T doClampComponentMAC
     T j0 = curr_pos.select(1,1).clamp(0, flags.size(3) - 2).toType(at::kLong);
     T k0 = curr_pos.select(1,2).clamp(0,
                       is3D ? (flags.size(2) - 2) : 0).toType(at::kLong);
+    
     T i1 = i0 + 1;
     T j1 = j0 + 1;
     T k1 = (is3D) ? (k0 + 1) : k0;
@@ -610,16 +608,15 @@ T doClampComponentMAC
     }
   }
   // clamp dst
-  ret.masked_scatter_(maskRet, at::max(dst, minv.unsqueeze(1)).masked_select(maskRet));
-  ret.masked_scatter_(maskRet, at::min(dst, maxv.unsqueeze(1)).masked_select(maskRet));
- 
+  ret.masked_scatter_(maskRet,
+          at::max(at::min(dst, maxv), minv).masked_select(maskRet));
   return ret;
 }
 
 T MacCormackClampMAC
 (
   const T& flags, const T& vel, const T& dval,
-  const T& orig, const T& fwd, const T& mask,
+  const T& orig, const T& fwd, const T& maskBorder,
   float dt,
   const T& i, const T& j, const T& k
 ) {
@@ -628,7 +625,7 @@ T MacCormackClampMAC
   int d   = flags.size(2);
   int h   = flags.size(3);
   int w   = flags.size(4);
-  bool is3D = (flags.size(2) > 1);
+  bool is3D = (d > 1);
 
   T zero = infer_type(vel).zeros({bsz, 3, d, h, w});
   T pos = at::cat({i.unsqueeze(1), j.unsqueeze(1), k.unsqueeze(1)}, 1).toType(infer_type(vel));
@@ -636,20 +633,17 @@ T MacCormackClampMAC
 
   // getAtMACX-Y-Z already eliminates border cells. In border cells we set 0 as vel
   // but it will be selected out by mask in advectVel.
-
   dval.select(1,0) = doClampComponentMAC(0, flags, dval.select(1,0).unsqueeze(1),
-                                            orig,  dfwd.select(1,0).unsqueeze(1),
-                                            pos,
-               zero.masked_scatter_(mask, fluid::ten::getAtMACX(vel)) * dt).squeeze(1);
+    orig,  dfwd.select(1,0).unsqueeze(1), pos,
+    zero.masked_scatter_(maskBorder.eq(0), getAtMACX(vel)) * dt).squeeze(1);
+  
   dval.select(1,1) = doClampComponentMAC(1, flags, dval.select(1,1).unsqueeze(1),
-                                            orig,  dfwd.select(1,1).unsqueeze(1),
-                                            pos,
-               zero.masked_scatter_(mask, fluid::ten::getAtMACY(vel)) * dt).squeeze(1);
+    orig,  dfwd.select(1,1).unsqueeze(1), pos,
+   zero.masked_scatter_(maskBorder.eq(0), getAtMACY(vel)) * dt).squeeze(1);
   if (is3D) {
      dval.select(1,2) = doClampComponentMAC(2, flags, dval.select(1,2).unsqueeze(1),
-                                               orig,  dfwd.select(1,2).unsqueeze(1),
-                                               pos,
-               zero.masked_scatter_(mask, fluid::ten::getAtMACZ(vel)) * dt).squeeze(1);
+        orig,  dfwd.select(1,2).unsqueeze(1), pos,
+        zero.masked_scatter_(maskBorder.eq(0), getAtMACZ(vel)) * dt).squeeze(1);
 
   } else {
      dval.select(1,2).fill_(0);
@@ -715,7 +709,7 @@ void advectVel
   const int order_space = 1;
   // A full line trace along every ray is expensive but correct (applies to FluidNet
   // methods only).
-  const bool line_trace = true;
+  const bool line_trace = false;
 
   T pos_corrected = infer_type(orig).zeros({bsz, 3, d, h, w});
 
@@ -747,7 +741,6 @@ void advectVel
     cur_U_dst.select(1,2).masked_scatter_(maskBorder.squeeze(1),
          pos_corrected.select(1,2).masked_select(maskBorder.squeeze(1)));
   }
-
   // Forward step.
   T val;
   if (method == ADVECT_EULER_FLUIDNET ||
@@ -757,7 +750,6 @@ void advectVel
   } else {
     AT_ERROR("No defined method for MAC advection");
   }
-
   // Store in the output array.
   cur_U_dst.select(1,0).masked_scatter_(maskBorder.eq(0).squeeze(1),
        val.select(1,0).masked_select(maskBorder.eq(0).squeeze(1)));
@@ -787,35 +779,30 @@ void advectVel
     if (method == ADVECT_MACCORMACK_FLUIDNET) {
       bwd.select(1,0).masked_scatter_(maskBorder.ne(1).squeeze(1),
             SemiLagrangeEulerFluidNetMAC(flags, U, fwd, maskBorder, -dt,
-                                         order_space, line_trace, idx_x, idx_y, idx_z)
+            order_space, line_trace, idx_x, idx_y, idx_z)
             .select(1,0).masked_select(maskBorder.ne(1).squeeze(1)));
       bwd.select(1,1).masked_scatter_(maskBorder.ne(1).squeeze(1),
             SemiLagrangeEulerFluidNetMAC(flags, U, fwd, maskBorder, -dt,
-                                         order_space, line_trace, idx_x, idx_y, idx_z)
+            order_space, line_trace, idx_x, idx_y, idx_z)
             .select(1,1).masked_select(maskBorder.ne(1).squeeze(1)));
       if (is3D) {
         bwd.select(1,2).masked_scatter_(maskBorder.ne(1).squeeze(1),
               SemiLagrangeEulerFluidNetMAC(flags, U, fwd, maskBorder, -dt,
-                                           order_space, line_trace, idx_x, idx_y, idx_z)
+              order_space, line_trace, idx_x, idx_y, idx_z)
               .select(1,2).masked_select(maskBorder.ne(1).squeeze(1)));
       }
     }
 
     // Now compute the correction.
-
+    T CorrectMAC = MacCormackCorrectMAC(flags, orig, fwd, bwd, 
+                                       maccormack_strength, idx_x, idx_y, idx_z);
     U_dst.select(1,0).masked_scatter_(maskBorder.ne(1).squeeze(1),
-          MacCormackCorrectMAC(flags, orig, fwd, bwd,
-                                       maccormack_strength, idx_x, idx_y, idx_z)
-          .select(1,0).masked_select(maskBorder.ne(1).squeeze(1)));
+          CorrectMAC.select(1,0).masked_select(maskBorder.ne(1).squeeze(1)));
     U_dst.select(1,1).masked_scatter_(maskBorder.ne(1).squeeze(1),
-          MacCormackCorrectMAC(flags, orig, fwd, bwd,
-                                       maccormack_strength, idx_x, idx_y, idx_z)
-          .select(1,1).masked_select(maskBorder.ne(1).squeeze(1)));
+          CorrectMAC.select(1,1).masked_select(maskBorder.ne(1).squeeze(1)));
     if (is3D) {
       U_dst.select(1,2).masked_scatter_(maskBorder.ne(1).squeeze(1),
-            MacCormackCorrectMAC(flags, orig, fwd, bwd,
-                                         maccormack_strength, idx_x, idx_y, idx_z)
-            .select(1,2).masked_select(maskBorder.ne(1).squeeze(1)));
+            CorrectMAC.select(1,2).masked_select(maskBorder.ne(1).squeeze(1)));
     }
 
     // Now perform clamping.
@@ -826,22 +813,17 @@ void advectVel
       dval.select(1,2) = U_dst.select(1,2).clone();
     }
 
+    T ClampMAC = MacCormackClampMAC(flags, U, dval, orig, fwd, maskBorder, 
+                                    dt, idx_x, idx_y, idx_z);
     U_dst.select(1,0).masked_scatter_(maskBorder.ne(1).squeeze(1),
-          MacCormackClampMAC(flags, U, dval, orig, fwd, maskBorder, dt,
-                                       idx_x, idx_y, idx_z)
-          .select(1,0).masked_select(maskBorder.ne(1).squeeze(1)));
+             ClampMAC.select(1,0).masked_select(maskBorder.ne(1).squeeze(1)));
     U_dst.select(1,1).masked_scatter_(maskBorder.ne(1).squeeze(1),
-          MacCormackClampMAC(flags, U, dval, orig, fwd, maskBorder, dt,
-                                       idx_x, idx_y, idx_z)
-          .select(1,1).masked_select(maskBorder.ne(1).squeeze(1)));
+             ClampMAC.select(1,1).masked_select(maskBorder.ne(1).squeeze(1)));
     if (is3D) {
       U_dst.select(1,2).masked_scatter_(maskBorder.ne(1).squeeze(1),
-            MacCormackClampMAC(flags, U, dval, orig, fwd, maskBorder, dt,
-                                         idx_x, idx_y, idx_z)
-            .select(1,2).masked_select(maskBorder.ne(1).squeeze(1)));
+               ClampMAC.select(1,2).masked_select(maskBorder.ne(1).squeeze(1)));
     }
-
   }
-
 }
+
 } // namespace fluid

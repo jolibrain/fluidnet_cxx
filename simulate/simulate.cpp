@@ -37,10 +37,10 @@ void createPlumeBCs(std::vector<at::Tensor>& batch, float densityVal, float uSca
     AT_ASSERT(zdim == 1, "For 2D, zdim must be 1");
   } 
   float centerX = std::floor( (float) xdim / 2); 
-  float centerZ = std::max(std::floor( (float) zdim / 2), (float) 1); 
+  //float centerZ = std::max(std::floor( (float) zdim / 2), (float) 1); 
   float plumeRad = std::floor( (float) xdim * (float) rad);
 
-  float y = 1;
+  //float y = 1;
   at::Tensor vec;
   if (!is3D) {
     vec = infer_type(UBC).arange(0,2);
@@ -131,14 +131,14 @@ void emptyDomain(at::Tensor& flags, int bnd = 1) {
 
   const bool is3D = (flags.size(2) != 1);
 
-  AT_ASSERT(((!is3D || flags.size(2) > bnd * 2) &&
-             flags.size(3) > bnd * 2 || flags.size(4) > bnd * 2),
-             "Simulation domain is not big enough");
+  AT_ASSERT( (( (!is3D) || (flags.size(2) > bnd * 2) ) &&
+             (flags.size(3) > bnd * 2) || (flags.size(4) > bnd * 2) ),
+             ("Simulation domain is not big enough") );
 
   const int32_t xdim  = flags.size(4);
   const int32_t ydim  = flags.size(3);
   const int32_t zdim  = flags.size(2);
-  const int32_t nbatch = flags.size(0);
+  //const int32_t nbatch = flags.size(0);
 
   at::Tensor index_x = infer_type(flags).arange(0, xdim).view({xdim}).expand_as(flags[0][0]);
   at::Tensor index_y = infer_type(flags).arange(0, ydim).view({ydim, 1}).expand_as(flags[0][0]);
@@ -174,8 +174,8 @@ void simulate(std::vector<at::Tensor>& batch, int res) {
   float maccormackStrength = 0.6; 
   bool sampleOutsideFluid = false;
 
-  float buoyancyScale = 2.0 * (res / 128);
-  float gravityScale = 1 * (res / 128);
+  float buoyancyScale = 0 * (res / 128);
+  float gravityScale = 0 * (res / 128);
   
   // Get p, U, flags and density from batch.
   at::Tensor p = batch[0];
@@ -191,7 +191,7 @@ void simulate(std::vector<at::Tensor>& batch, int res) {
 
   // Self-advect velocity
   at::Tensor vel_dst = U.clone();
-  fluid::advectVel(dt, U, flags, vel_dst,  "maccormackFluidNet", 1, maccormackStrength);
+  fluid::advectVel(dt, U, flags, vel_dst, "maccormackFluidNet", 1, maccormackStrength);
   U = vel_dst;
 
   // Set the manual BCs.
@@ -201,12 +201,12 @@ void simulate(std::vector<at::Tensor>& batch, int res) {
   gravity[1] = 1;
 
   // Add external forces: buoyancy.
-  gravity.mul_(-(fluid::ten::getDx(flags) / 4) * buoyancyScale);
+  gravity.mul_(-(fluid::getDx(flags) / 4) * buoyancyScale);
 
   fluid::addBuoyancy(U, flags, density, gravity, dt);
   
   // Add external forces: gravity.
-  gravity.mul_((-fluid::ten::getDx(flags) / 4) * gravityScale);
+  gravity.mul_((-fluid::getDx(flags) / 4) * gravityScale);
   fluid::addGravity(U, flags, gravity, dt);
 
   // Set the constant domain values.
@@ -231,7 +231,7 @@ void simulate(std::vector<at::Tensor>& batch, int res) {
 
 int main() {
 
-int res = 50;
+int res = 512;
 
 at::Tensor p =       CUDA(at::kFloat).zeros({1,1,1,res,res});
 at::Tensor U =       CUDA(at::kFloat).zeros({1,2,1,res,res});
@@ -247,16 +247,16 @@ batch.insert(batch.end(), flags);
 batch.insert(batch.end(), density);
 
 float densityVal = 1;
-float rad = 0.15;
+float rad = 0.2;
 float plumeScale = 1.0 * ((float) res/128);
 
 createPlumeBCs(batch, densityVal, plumeScale, rad);
-int maxIter = 1000;
-int outIter = 20;
+int maxIter = 10000;
+int outIter = 40;
 int it = 0;
 while (it < maxIter) {
   fluid::simulate(batch, res);
-  it++;
+
   if (it % outIter == 0) {
     std::cout << "Writing output at iteration " << it << std::endl;
     std::string name_density = "density_it_" + std::to_string(it);
@@ -266,5 +266,7 @@ while (it < maxIter) {
     plotTensor2D(batch[1].select(1,0).unsqueeze(1).toBackend(at::Backend::CPU), 500, 500, name_ux);
     plotTensor2D(batch[1].select(1,1).unsqueeze(1).toBackend(at::Backend::CPU), 500, 500, name_uy);
   }
+
+  it++;
 }
 }
