@@ -67,9 +67,9 @@ In main folder
 
 mkdir build
 cd build
-cmake .. -DFLUID_NO_TEST=true/false # specify if you want to build tests
-./simulate/fluid_sim # if no_test = true
-./test/unit_tests # if no_test = false
+cmake .. -DFLUID_TEST=OFF/ON # specify if you want to build tests
+./simulate/fluid_sim # if test = OFF
+./test/unit_tests # if test = ON
 ```
 
 
