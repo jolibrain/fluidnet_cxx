@@ -243,7 +243,6 @@ try:
         divL1Lambda = mconf['divL1Lambda']
 
         for batch_idx, (data, target) in enumerate(test_loader):
-            print('here')
             with torch.no_grad():
                 if torch.cuda.is_available():
                     data, target = data.cuda(), target.cuda()
