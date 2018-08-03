@@ -45,9 +45,8 @@ our ConvNet
 
 #4. Training:
 ---------------
-First go to 
+First, go to pytorch folder: 
 ```
-
 cd pytorch
 ```
 and open ```config.py``` with your favorite text editor.
@@ -55,7 +54,6 @@ Set the location of your dataset in ```dataDir``` and ```dataset``` and the fold
 save the trained model, configuration files as well as metrics (losses) in ```modelDir ```
 To launch the training:
 ```
-
 python3 fluid_net_train.py
 ```
 
@@ -71,17 +69,14 @@ to ```True```.
 You can also monitor the loss during training by running in ```/pytorch```
 
 ```
-
 python3 plot_loss.py <modelDir> #For total training and validation losses
 #or
 python3 plot_5loss.py <modelDir> #For each of the losses (e.g: L1(div) and L2(div))
-
 ```
 
 It is also possible to take the a saved model and print its output fields and
 compare it to targets (Pressure, Velocity, Divergence and Errors):
 ```
-
 python3 print_output.py <modelDir> <modelFilename>
 #example:
 python3 print_output.py data/model_pLoss_L2 convModel
@@ -90,7 +85,6 @@ python3 print_output.py data/model_pLoss_L2 convModel
 Finally, you can use your saved trained model to perform a full simulation, i.e. 
 advection + pressure projection during several time steps. Run:
 ```
-
 python3 fluid_net_simulate.py <modelDir> <modelFilename>
 ```
 
