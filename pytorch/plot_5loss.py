@@ -15,7 +15,11 @@ train_loss_plot = np.load(file_train)
 val_loss_plot = np.load(file_val)
 
 # Plot loss against epochs
-plt.plot(train_loss_plot[1:,0], train_loss_plot[1:,1], label = 'Training Loss')
+plt.plot(train_loss_plot[1:,0], train_loss_plot[1:,1], label = 'Total Training Loss')
+plt.plot(train_loss_plot[1:,0], train_loss_plot[1:,2], label = 'L2 pressure Loss')
+#plt.plot(train_loss_plot[1:,0], train_loss_plot[1:,3], label = 'L2 div Loss')
+plt.plot(train_loss_plot[1:,0], train_loss_plot[1:,4], label = 'L1 pressure Loss')
+#plt.plot(train_loss_plot[1:,0], train_loss_plot[1:,5], label = 'L1 div Loss')
 plt.plot(val_loss_plot[1:,0], val_loss_plot[1:,1], label = 'Validation Loss')
 plt.legend()
 plt.xlabel('Epoch')

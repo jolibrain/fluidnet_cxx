@@ -2,15 +2,15 @@ from setuptools import setup
 from torch.utils.cpp_extension import CppExtension, BuildExtension
 
 setup(
-    name='advection_cpp',
+    name='fluidnet_cpp',
     ext_modules=[
         CppExtension(
-            'advection_cpp',
+            'fluidnet_cpp',
             [
                 'grid.cpp',
                 'advect_type.cpp',
                 'calc_line_trace.cpp',
-                'advection.cpp',
+                'fluids_init.cpp'
             ]),
     ],
     cmdclass={

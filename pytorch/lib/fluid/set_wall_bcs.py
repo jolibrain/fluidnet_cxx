@@ -44,10 +44,15 @@ def setWallBcs(U, flags):
     mNotFluidNotObs = cur_fluid.ne(1).__and__(cur_obs.ne(1))
     mCont.masked_fill_(mNotFluidNotObs, 0)
 
+    # The neighbour to the left (i-1,j,k) is an obstacle
+    # Set u.n = u_solid.n (slip bc) (direction i)
     i_l = zero.where( (i <=0), i - 1)
     obst100 = zeroBy.where( i <= 0, (flags[idx_b, zero, k, j, i_l].eq(TypeObstacle))).__and__(mCont)
     U[:,0].masked_fill_(obst100, 0)
 
+    # Current cell is an obstacle.
+    # The neighbour to the left (i-1,j,k) is fluid.
+    # Set u.n = u_solid.n (slip bc) (direction i)
     obs_fluid100 = zeroBy.where( i <= 0, (flags[idx_b, zero, k, j, i_l].eq(TypeFluid))). \
      __and__(cur_obs).__and__(mCont)
     U[:,0].masked_fill_(obs_fluid100, 0)

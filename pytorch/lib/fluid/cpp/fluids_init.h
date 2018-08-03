@@ -1,6 +1,7 @@
 #pragma once
 
 #include <sstream>
+#include <vector>
 
 #include "torch/torch.h"
 #include "grid.h"
@@ -122,12 +123,22 @@ T MacCormackClampMAC
 // will make the advection more 1st order (with values interpolating in
 // between). A value of 1 (which implements the update from "An Unconditionally
 // Stable MaCormack Method") tends to add too much high-frequency detail.
-at::Tensor advectVel
+T advectVel
 (
   float dt, T U, T flags,
   const std::string method_str,
   int bnd,
   const float maccormack_strength
+);
+
+std::vector<T> solveLinearSystemJacobi
+(
+   T flags,
+   T div,
+   const bool is_3d,
+   const float p_tol,
+   const int max_iter,
+   const bool verbose
 );
 
 } // namespace fluid

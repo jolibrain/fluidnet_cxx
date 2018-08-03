@@ -1,12 +1,12 @@
 import torch
-import advection_cpp
+import fluidnet_cpp
 
 def __check_advection_method__(method):
     assert (method == 'eulerFluidNet' or method == 'maccormackFluidNet'), \
             'Error: Advection method not supported. Options are: \
                      maccormackFluidNet, eulerFluidNet'
 
-def advect_scalar(dt, src, U, flags, method = 'maccormackFluidNet', boundary_width = 1,
+def advectScalar(dt, src, U, flags, method = 'maccormackFluidNet', boundary_width = 1,
         sample_outside_fluid = False, maccormack_strength = 0.75):
     r"""Advects scalar field src by the input vel field U
 
@@ -56,11 +56,11 @@ def advect_scalar(dt, src, U, flags, method = 'maccormackFluidNet', boundary_wid
     assert U.is_contiguous() and flags.is_contiguous() and \
              src.is_contiguous(), "Input is not contiguous"
 
-    s_dst = advection_cpp.advect_scalar(dt, src, U, flags, method,
+    s_dst = fluidnet_cpp.advect_scalar(dt, src, U, flags, method,
             boundary_width, sample_outside_fluid, maccormack_strength)
     return s_dst
 
-def advect_velocity(dt, U, flags, method = 'maccormackFluidNet', boundary_width = 1,
+def advectVelocity(dt, U, flags, method = 'maccormackFluidNet', boundary_width = 1,
         maccormack_strength = 0.75):
     r"""Advects velocity field U by itself
 
@@ -101,7 +101,7 @@ def advect_velocity(dt, U, flags, method = 'maccormackFluidNet', boundary_width 
                U.size(3) == h and U.size(4) == w, "Size mismatch"
     assert U.is_contiguous() and flags.is_contiguous(), "Input is not contiguous"
 
-    U_dst = advection_cpp.advect_vel(dt, U, flags, method,
+    U_dst = fluidnet_cpp.advect_vel(dt, U, flags, method,
             boundary_width, maccormack_strength)
 
     return U_dst
