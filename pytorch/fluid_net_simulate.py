@@ -6,10 +6,6 @@ import torch.autograd
 import math
 import time
 
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import pyqtSignal
-import pyqtgraph as pg
-
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.cm as cm
