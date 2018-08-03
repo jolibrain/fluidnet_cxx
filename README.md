@@ -33,7 +33,6 @@ These scripts are used for the advection part of the solver.
 
 Follow these instructions from main directory:
 ```
-
 cd pytorch/lib/fluid/cpp
 python3 setup.py install # if you want to install it on local user, use --user
 ```
@@ -59,7 +58,7 @@ python3 fluid_net_train.py
 
 In you train for the first time ever with the FluidNet, you will have to preprocess it.
 Set ```preprocOnly``` to ```True```.
-This will create new torch arrays from the original binary files, being faster reading 
+This will create new torch arrays from the original binary files, reading data faster 
 during training. This process can take some time but it is necessary only once!.
 For the rest of the work  ```preprocOnly``` must be ```False```.
 
