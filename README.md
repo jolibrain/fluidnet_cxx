@@ -96,6 +96,7 @@ The cpp code, written with ATen library, can be compiled, tested and run on its 
 You will need [OpenCV2](https://opencv.org/opencv-2-4-8.html) to visualize output, as matplotlib is unfortunately not available!
 
 **Test**
+
 Run the following commands:
 ```
 cd solver_cpp/
@@ -111,6 +112,7 @@ advection when there is no Manta equivalent. In that case, we compare to the ori
 FluidNet advection.
 
 **Run**
+
 ```
 cd solver_cpp/
 mkdir build
