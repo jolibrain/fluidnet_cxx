@@ -26,6 +26,8 @@ conf['modelDirname'] = conf['modelDir'] + conf['modelFilename']
 resume = conf['resumeTraining']
 num_workers = conf['numWorkers']
 batch_size = conf['batchSize']
+max_epochs = conf['maxEpochs']
+
 if (conf['preprocOnly']):
     print('Running preprocessing only')
     resume = False
@@ -350,7 +352,7 @@ try:
 
     #********************************* Run epochs ****************************************
 
-    n_epochs = conf['maxEpochs']
+    n_epochs = max_epochs
     if not resume:
         state = {}
         state['bestPerf'] = float('Inf')

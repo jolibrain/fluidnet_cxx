@@ -2,11 +2,11 @@
 
 defaultConf = {
     'batchSize' : 64,
-    'dataDir' : '../fdata',
-    'dataset' : 'output_current_model_sphere',
+    'dataDir' : '../fdata', # Dataset dir
+    'dataset' : 'output_current_model_sphere', # Folder inside dataDir with tr and te scenes
     'freqToFile' : 5, # Frequency for loss output to file
    # 'loadModel' : False,  # set to True when resuming training or evaluating
-    'maxEpochs' : 2,
+    'maxEpochs' : 5,
     'modelDir' : 'data/model_pLoss_L1_L2', # Folder where the model, the losses and
                                            # the conf and mconf files are saved
     'modelFilename' : 'convModel',  # Output model file name
@@ -16,7 +16,7 @@ defaultConf = {
             'pDiv': False,
             'UDiv': False,
         },
-        # Set to 0 to de-activate
+        # Set to 0 to de-activate corresponding loss.
         'pL2Lambda' : 0,
         'divL2Lambda' : 1,
         'pL1Lambda' : 0,
@@ -27,7 +27,7 @@ defaultConf = {
     },
     'numWorkers' : 3,
     'preprocOnly': False, # If True, only preprocesses the dataset and exits
-    'resumeTraining': False, # Set to True when resuming
+    'resumeTraining': True, # Set to True when resuming
     'train' : True # No usage for now
 }
 
