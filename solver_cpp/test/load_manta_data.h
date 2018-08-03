@@ -141,7 +141,8 @@ std::vector<std::string> globVector(const std::string& pattern){
 }
 
 // Funtion to call loadMantaFile on multiple files to concat them into a single batch.
-void loadMantaBatch(std::string fn,
+void loadMantaBatch(std::string path_to_data,
+					std::string fn,
                     at::Tensor& p_out,
                     at::Tensor& U_out,
                     at::Tensor& flags_out,
@@ -154,7 +155,7 @@ void loadMantaBatch(std::string fn,
        != Tundef || flags_out.type() != Tundef) {
       AT_ERROR("Load Manta Batch: input tensors must be Undefined");
    }
-   std::string path = "../test_data/b*_" + fn;
+   std::string path = path_to_data + "/b*_" + fn;
    std::vector<std::string> files = globVector(path);
    if (files.size() != 16){
      std::string ss;

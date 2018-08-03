@@ -8,6 +8,8 @@
 #include "fluid.h"
 #include "init.cpp"
 
+#define DATA "../../../fluidnet_cxx/test_data"
+
 // We don't have Manta data to compare advection of scalar and velocity. 
 // Therefore we compare to the original FluidNet code, in "init.cpp".
 // TODO (aalgua): For now, only 2D is debugged!! We have to debug 3D.
@@ -27,7 +29,7 @@ void advectFluidNet(){
            at::Tensor density;
            bool is3D;
 
-           loadMantaBatch(fn, p, U, flags, density, is3D);
+           loadMantaBatch(DATA, fn, p, U, flags, density, is3D);
            U = U.toType(realCPU);
            p = p.toType(realCPU);
            flags = flags.toType(realCPU);
@@ -132,7 +134,7 @@ void testSetWallBcs(int dim, std::string fnInput, std::string fnOutput) {
    at::Tensor U;
    at::Tensor flags;
    bool is3D;
-   loadMantaBatch(fn, undef1, U, flags, undef1, is3D);
+   loadMantaBatch(DATA, fn, undef1, U, flags, undef1, is3D);
  
    assertNotAllEqual(U);
    assertNotAllEqual(flags);
@@ -148,7 +150,7 @@ void testSetWallBcs(int dim, std::string fnInput, std::string fnOutput) {
    at::Tensor undef2;
    at::Tensor UManta;
    at::Tensor flagsManta;
-   loadMantaBatch(fn, undef2, UManta, flagsManta, undef2, is3D);
+   loadMantaBatch(DATA, fn, undef2, UManta, flagsManta, undef2, is3D);
 
    if (!(is3D == (dim == 3))) {
       AT_ERROR("Error with is3D at output.");}
@@ -187,7 +189,7 @@ void velocityDivergence() {
       at::Tensor U;
       at::Tensor flags;
       bool is3D;
-      loadMantaBatch(fn, undef1, U, flags, undef1, is3D);
+      loadMantaBatch(DATA, fn, undef1, U, flags, undef1, is3D);
       assertNotAllEqual(U);
       assertNotAllEqual(flags);
       AT_ASSERT(is3D == (dim == 3), "Failed assert is3D");
@@ -197,7 +199,7 @@ void velocityDivergence() {
       at::Tensor divManta;
       at::Tensor UManta;
       at::Tensor flagsManta;
-      loadMantaBatch(fn, divManta, UManta, flagsManta, undef2, is3D);
+      loadMantaBatch(DATA, fn, divManta, UManta, flagsManta, undef2, is3D);
       AT_ASSERT(is3D == (dim == 3), "Failed assert is3D");
       AT_ASSERT(U.equal(UManta), "Velocity changed!");
       AT_ASSERT(flags.equal(flagsManta), "Flags changed!");   
@@ -233,7 +235,7 @@ void velocityUpdate() {
       at::Tensor U;
       at::Tensor flags;
       bool is3D;
-      loadMantaBatch(fn, undef1, U, flags, undef1, is3D);
+      loadMantaBatch(DATA, fn, undef1, U, flags, undef1, is3D);
       assertNotAllEqual(U);
       assertNotAllEqual(flags);
 
@@ -243,7 +245,7 @@ void velocityUpdate() {
       at::Tensor pressure;
       at::Tensor UManta;
       at::Tensor flagsManta;
-      loadMantaBatch(fn, pressure, UManta, flagsManta, undef2, is3D);
+      loadMantaBatch(DATA, fn, pressure, UManta, flagsManta, undef2, is3D);
       AT_ASSERT(is3D == (dim == 3), "Failed assert is3D");
       
       AT_ASSERT(flags.equal(flagsManta), "Flags changed!");   
@@ -287,7 +289,7 @@ void addBuoyancy() {
       at::Tensor flags;
       at::Tensor density;
       bool is3D;
-      loadMantaBatch(fn, undef1, U, flags, density, is3D);
+      loadMantaBatch(DATA, fn, undef1, U, flags, density, is3D);
       assertNotAllEqual(U);
       assertNotAllEqual(flags);
       assertNotAllEqual(density);
@@ -298,7 +300,7 @@ void addBuoyancy() {
       at::Tensor undef2;
       at::Tensor UManta;
       at::Tensor flagsManta;
-      loadMantaBatch(fn, undef2, UManta, flagsManta, undef2, is3D);
+      loadMantaBatch(DATA, fn, undef2, UManta, flagsManta, undef2, is3D);
       assertNotAllEqual(UManta);
       assertNotAllEqual(flagsManta);
       AT_ASSERT(is3D == (dim == 3), "3D boolean is inconsistent");
@@ -333,7 +335,7 @@ void addGravity() {
       at::Tensor U;
       at::Tensor flags;
       bool is3D;
-      loadMantaBatch(fn, undef1, U, flags, undef1, is3D);
+      loadMantaBatch(DATA, fn, undef1, U, flags, undef1, is3D);
       assertNotAllEqual(U);
       assertNotAllEqual(flags);
       AT_ASSERT(is3D == (dim == 3), "3D boolean is inconsistent");
@@ -343,7 +345,7 @@ void addGravity() {
       at::Tensor undef2;
       at::Tensor UManta;
       at::Tensor flagsManta;
-      loadMantaBatch(fn, undef2, UManta, flagsManta, undef2, is3D);
+      loadMantaBatch(DATA, fn, undef2, UManta, flagsManta, undef2, is3D);
       assertNotAllEqual(UManta);
       assertNotAllEqual(flagsManta);
       AT_ASSERT(is3D == (dim == 3), "3D boolean is inconsistent");
@@ -377,7 +379,7 @@ void solveLinearSystemJacobi() {
       at::Tensor UDiv;
       at::Tensor flagsDiv;
       bool is3DDiv;
-      loadMantaBatch(fn, undef1, UDiv, flagsDiv, undef1, is3DDiv);
+      loadMantaBatch(DATA, fn, undef1, UDiv, flagsDiv, undef1, is3DDiv);
       assertNotAllEqual(UDiv);
       assertNotAllEqual(flagsDiv);
       
@@ -387,7 +389,7 @@ void solveLinearSystemJacobi() {
       at::Tensor flags;
       at::Tensor rhsManta;
       bool is3D;
-      loadMantaBatch(fn, pManta, UManta, flags, rhsManta, is3D);
+      loadMantaBatch(DATA, fn, pManta, UManta, flags, rhsManta, is3D);
 
       AT_ASSERT(at::Scalar(at::max(at::abs(flagsDiv - flags))).toFloat() == 0,
                 "Flags changed!");      

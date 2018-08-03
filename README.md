@@ -24,6 +24,7 @@ git clone git@github.com:AAlguacil/fluidnet_cxx.git
 ---------------
 
 [Pytorch 0.4](https://pytorch.org/)
+__NOTE: Training is done in GPUs__
 
 #2. Install cpp extensions for fluid solver:
 ---------------
@@ -56,11 +57,12 @@ To launch the training:
 python3 fluid_net_train.py
 ```
 
-In you train for the first time ever with the FluidNet, you will have to preprocess it.
+In you train for the first time ever with the FluidNet datasset, you will have to preprocess it.
 Set ```preprocOnly``` to ```True```.
-This will create new torch arrays from the original binary files, reading data faster 
-during training. This process can take some time but it is necessary only once!.
-For the rest of the work  ```preprocOnly``` must be ```False```.
+This will create and save the data as torch arrays from the original binary files,
+making the reading of data faster during training faster.
+This process can take some time but it is necessary only once!.
+For the rest of the work  ```preprocOnly``` must be set to ```False```.
 
 You can interrupt at any time your training and resume it, by setting ```resumeTraining```
 to ```True```.
@@ -87,7 +89,40 @@ advection + pressure projection during several time steps. Run:
 python3 fluid_net_simulate.py <modelDir> <modelFilename>
 ```
 
+#5. Extending the cpp code:
+---------------
 
+The cpp code, written with ATen library, can be compiled, tested and run on its own.
+You will need [OpenCV2](https://opencv.org/opencv-2-4-8.html) to visualize output, as matplotlib is unfortunately not available!
+
+**Test**
+Run the following commands:
+```
+cd solver_cpp/
+mkdir build_test
+cd build_test
+cmake .. -DFLUID_TEST=ON # Default is off is OFF
+./test/fluidnet_sim
+```
+This will test every routine of the solver (advection, divergence calculation, velocity
+update, adding of gravity and buoyancy, linear system resolution with Jacobi method).
+These tests are taken from FluidNet and compare outputs of Manta to ours, except for 
+advection when there is no Manta equivalent. In that case, we compare to the original
+FluidNet advection.
+
+**Run**
+```
+cd solver_cpp/
+mkdir build
+cd build
+cmake .. -DFLUID_TEST=OFF # Default is off is OFF
+./simulate/fluidnet_sim
+```
+Output images will be written in ```build``` folder, and can be converted into gif using
+ImageMagick.
+
+**NOTE: For the moment, only 2D simulations and training are supported, as bugs are still
+found for the 3D advection.**
 
 
 
