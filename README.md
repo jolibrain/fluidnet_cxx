@@ -40,8 +40,8 @@ python3 setup.py install # if you want to install it on local user, use --user
 
 #3. Datatset:
 ---------------
-We use the same dataset as the original FluidNet (generated with MantaFlow) for training
-our ConvNet
+We use the same **2D dataset** as the original FluidNet [Section 1: Generating the data - Generating training data](https://github.com/google/FluidNet#1-generating-the-data) (generated with MantaFlow) for training
+our ConvNet.
 
 #4. Training:
 ---------------
