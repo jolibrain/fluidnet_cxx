@@ -9,7 +9,7 @@ Find the original repository [here](https://github.com/google/FluidNet).
 
 The object of this work is to investigate the architecture of the FluidNet architecture with a C++/Python backend, i.e. using PyTorch and ATen Tensor library, that exposes PyTorch operations in C++11. This allows to replace all Lua code (Torch7) and avoid implementing two distinct kernels for CPU or CUDA.
 ATen allows to write generic code that works on both devices.
-More information in ATen [repo](https://github.com/zdevito/ATen). It can be called from\PyTorch, using its new extension-cpp.
+More information in ATen [repo](https://github.com/zdevito/ATen). It can be called from PyTorch, using its new extension-cpp.
 
 To install this repo:
 
@@ -57,7 +57,7 @@ To launch the training:
 python3 fluid_net_train.py
 ```
 
-In you train for the first time ever with the FluidNet datasset, you will have to preprocess it.
+In you train for the first time ever with the FluidNet datasset, you will have to **preprocess** it.
 Set ```preprocOnly``` to ```True```.
 This will create and save the data as torch arrays from the original binary files,
 making the reading of data faster during training faster.
@@ -75,7 +75,7 @@ python3 plot_loss.py <modelDir> #For total training and validation losses
 python3 plot_5loss.py <modelDir> #For each of the losses (e.g: L1(div) and L2(div))
 ```
 
-It is also possible to take the a saved model and print its output fields and
+It is also possible to take the saved model and print its output fields and
 compare it to targets (Pressure, Velocity, Divergence and Errors):
 ```
 python3 print_output.py <modelDir> <modelFilename>
