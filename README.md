@@ -97,7 +97,13 @@ You will need [OpenCV2](https://opencv.org/opencv-2-4-8.html) to visualize outpu
 
 **Test**
 
-Run the following commands:
+First, generate the test data from FluidNet
+[Section 3. Limitations of the current system - Unit Testing](https://github.com/google/FluidNet#3-limitations-of-the-current-system) and set the location of your folder in:
+```
+solver_cpp/test/test_fluid.cpp
+#define DATA <path_to_data>
+```
+Then run the following commands:
 ```
 cd solver_cpp/
 mkdir build_test
