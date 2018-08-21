@@ -1,7 +1,7 @@
 import torch
 import fluidnet_cpp
 
-def solveLinearSystemJacobi(flags, div, is_3d, p_tol=1e-5, max_iter=1000,
+def solveLinearSystemJacobi(dt, flags, div, density=None, is_3d=False, p_tol=1e-5, max_iter=1000,
         verbose=False):
     r"""Solves the linear system using the Jacobi method.
         Note: Since we don't receive a velocity field, we need to receive the is3D
@@ -10,7 +10,7 @@ def solveLinearSystemJacobi(flags, div, is_3d, p_tol=1e-5, max_iter=1000,
     Arguments:
         flags (Tensor): Input occupancy grid.
         div (Tensor): The velocity divergence.
-        is_3d (Tensor): If True, a 3D domain is expected.
+        is_3d (Tensor, optional): If True, a 3D domain is expected.
         p_tol (float, optional): ||p - p_prev|| termination condition.
             Defaults 1e-5.
         max_iter (int, optional): Maximum number of Jacobi iterations.
@@ -34,8 +34,12 @@ def solveLinearSystemJacobi(flags, div, is_3d, p_tol=1e-5, max_iter=1000,
     assert div.is_same_size(flags), "Size mismatch"
 
     assert flags.is_contiguous() and div.is_contiguous(), "Input is not contiguous"
+    if density is None:
+        density = torch.ones_like(div)
+    else:
+        assert density.is_same_size(flags), "Size mismatch"
 
-    p, p_tol = fluidnet_cpp.solve_linear_system(flags, div, is_3d, \
+    p, p_tol = fluidnet_cpp.solve_linear_system(dt, flags, div, density, is_3d, \
             p_tol, max_iter, verbose)
     return p, p_tol
 

@@ -1,4 +1,5 @@
 import torch
+from . import CellType
 
 # *****************************************************************************
 # velocityDivergence
@@ -38,9 +39,6 @@ def velocityDivergence(U, flags):
     assert (U.is_contiguous() and flags.is_contiguous() and \
               UDiv.is_contiguous()), "Input is not contiguous"
 
-    TypeFluid = 1
-    TypeObstacle = 2
-
     #Uijk : Velocity in ijk
     #Uijk_p : Velocity in (i+1),(j+1),(k+1)
 
@@ -71,7 +69,7 @@ def velocityDivergence(U, flags):
         UDiv[:,:,1:(d-1),1:(h-1),1:(w-1)] = div.view(bsz, 1, d-2, h-2, w-2)
 
     #Set div to 0 in obstacles
-    mask_obst = flags.eq(TypeObstacle)
+    mask_obst = flags.eq(CellType.TypeObstacle)
     UDiv.masked_fill_(mask_obst, 0)
     return UDiv
 

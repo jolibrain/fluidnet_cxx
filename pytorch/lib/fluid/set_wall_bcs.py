@@ -21,6 +21,7 @@ def setWallBcs(U, flags):
 
     TypeFluid = 1
     TypeObstacle = 2
+    TypeInflow = 8
 
     i = torch.arange(start=0, end=w, dtype=torch.long, device=cuda) \
             .view(1,w).expand(bsz, d, h, w)
@@ -74,3 +75,4 @@ def setWallBcs(U, flags):
         _and__(cur_obs).__and__(mCont)
         U[:,2].masked_fill_(obs_fluid001, 0)
 
+    return U

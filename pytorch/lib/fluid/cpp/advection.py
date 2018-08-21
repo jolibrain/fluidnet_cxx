@@ -60,13 +60,16 @@ def advectScalar(dt, src, U, flags, method = 'maccormackFluidNet', boundary_widt
             boundary_width, sample_outside_fluid, maccormack_strength)
     return s_dst
 
-def advectVelocity(dt, U, flags, method = 'maccormackFluidNet', boundary_width = 1,
+def advectVelocity(dt, orig, U, flags, method = 'maccormackFluidNet', boundary_width = 1,
         maccormack_strength = 0.75):
-    r"""Advects velocity field U by itself
+    r"""Advects velocity field orig by velocity field U
 
     Arguments:
         dt (float): timestep in seconds.
-        U (Tensor): input velocity field.
+        orig (Tensor): velocity field to be advected.
+            Shape is (batch,2/3,D,H,W) with D=1 for 2D
+            and D>1 for 3D simulations.
+        U (Tensor): non-divergent velocity field to advect orig.
             Shape is (batch,2/3,D,H,W) with D=1 for 2D
             and D>1 for 3D simulations.
         flags (Tensor): Input occupancy grid.
@@ -82,7 +85,7 @@ def advectVelocity(dt, U, flags, method = 'maccormackFluidNet', boundary_width =
     """
 
     #Check sizes
-    assert U.dim() == 5 and flags.dim() == 5, "Dimension mismatch"
+    assert U.dim() == 5 and orig.dim() == 5 and flags.dim() == 5, "Dimension mismatch"
     assert flags.size(1) == 1, "flags is not scalar"
 
     bsz = flags.size(0)
@@ -93,15 +96,18 @@ def advectVelocity(dt, U, flags, method = 'maccormackFluidNet', boundary_width =
     is3D = U.size(1) == 3
     if (not is3D):
        assert d == 1, "2D velocity field but zdepth > 1"
+       assert orig.size(1) == 2, "2D velocity field must have only 2 channels"
        assert U.size(1) == 2, "2D velocity field must have only 2 channels"
 
     # TODO: Debug 3D
     assert is3D == False, '3D is not supported yet!'
     assert U.size(0) == bsz and U.size(2) == d and \
                U.size(3) == h and U.size(4) == w, "Size mismatch"
-    assert U.is_contiguous() and flags.is_contiguous(), "Input is not contiguous"
+    assert orig.size(0) == bsz and orig.size(2) == d and \
+               orig.size(3) == h and orig.size(4) == w, "Size mismatch"
+    assert U.is_contiguous() and orig.is_contiguous() and flags.is_contiguous(), "Input is not contiguous"
 
-    U_dst = fluidnet_cpp.advect_vel(dt, U, flags, method,
+    U_dst = fluidnet_cpp.advect_vel(dt, orig, U, flags, method,
             boundary_width, maccormack_strength)
 
     return U_dst

@@ -1,5 +1,7 @@
 import torch
 
+from . import CellType
+
 def emptyDomain(flags, boundary_width = 1):
     cuda = torch.device('cuda')
     assert boundary_width > 0, 'Boundary width must be greater than zero!'
@@ -15,9 +17,6 @@ def emptyDomain(flags, boundary_width = 1):
     ydim  = flags.size(3)
     zdim  = flags.size(2)
     bnd = boundary_width
-
-    TypeFluid = 1
-    TypeObstacle = 2
 
     index_x = torch.arange(0, xdim, device=cuda).view(xdim).expand_as(flags[0][0])
     index_y = torch.arange(0, ydim, device=cuda).view(ydim, 1).expand_as(flags[0][0])
@@ -37,7 +36,7 @@ def emptyDomain(flags, boundary_width = 1):
         maskBorder = maskBorder.__or__(index_ten.select(0,2) < bnd).__or__\
                                       (index_ten.select(0,2) > zdim - 1 - bnd)
 
-    flags.masked_fill_(maskBorder, TypeObstacle)
-    flags.masked_fill_((maskBorder == 0), TypeFluid)
+    flags.masked_fill_(maskBorder, CellType.TypeObstacle)
+    flags.masked_fill_((maskBorder == 0), CellType.TypeFluid)
 
 

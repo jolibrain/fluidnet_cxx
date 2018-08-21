@@ -628,7 +628,7 @@ T MacCormackClampMAC
 
 at::Tensor advectVel
 (
-  float dt, T U, T flags,
+  float dt, T orig, T U, T flags,
   const std::string method_str,
   int bnd,
   const float maccormack_strength
@@ -645,8 +645,10 @@ at::Tensor advectVel
 
   T U_dst = zeros_like(U);
 
-  // We always do self-advection, but we could point to another tensor.
-  T orig = U.clone();
+  // FluidNet did self-advection, but the introduction of viscosity
+  // forces the advection of the viscous one by a non-divergent one
+  // from previous time step.
+  // T orig = U.clone();
 
   // The maccormack method also needs fwd and bwd temporary arrays.
   T fwd = infer_type(flags).zeros({bsz, U.size(1), d, h, w});
@@ -777,8 +779,10 @@ at::Tensor advectVel
 
 std::vector<T> solveLinearSystemJacobi
 (
+   float dt,
    T flags,
    T div,
+   T density,
    const bool is3D,
    const float p_tol = 1e-5,
    const int max_iter = 1000,
@@ -920,8 +924,8 @@ std::vector<T> solveLinearSystemJacobi
     p6.masked_scatter_(neighborFrontObs, pC.masked_select(neighborFrontObs));
 
     const float denom = is3D ? 6 : 4;
-    (*cur_p).masked_scatter_(mCont, ((p1 + p2 + p3 + p4 + p5 + p6 + div) / denom)
-                                                             .masked_select(mCont));
+    (*cur_p).masked_scatter_(mCont, ( (dt / density) *
+                (p1 + p2 + p3 + p4 + p5 + p6 + div) / denom).masked_select(mCont));
 
     // Currrent iteration output is now in cur_pressure
 
