@@ -14,9 +14,10 @@ file_val = glob.os.path.join(save_dir, 'val_loss.npy')
 train_loss_plot = np.load(file_train)
 val_loss_plot = np.load(file_val)
 
+x_start = 0
 # Plot loss against epochs
-plt.plot(train_loss_plot[1:,0], train_loss_plot[1:,1], label = 'Training Loss')
-plt.plot(val_loss_plot[1:,0], val_loss_plot[1:,1], label = 'Validation Loss')
+plt.plot(train_loss_plot[x_start:,0], train_loss_plot[x_start:,1], label = 'Training Loss')
+plt.plot(val_loss_plot[x_start:,0], val_loss_plot[x_start:,1], label = 'Validation Loss')
 plt.legend()
 plt.xlabel('Epoch')
 plt.ylabel('Loss')

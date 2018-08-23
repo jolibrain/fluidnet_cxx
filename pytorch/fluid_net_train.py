@@ -7,7 +7,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data
 
-import matplotlib.pyplot as plt
 import numpy as np
 import glob
 from shutil import copyfile
@@ -22,11 +21,7 @@ from config import defaultConf # Dictionnary with configuration and model params
 #TODO: allow to overwrite params from the command line by parsing.
 
 conf = defaultConf.copy()
-conf['modelDirname'] = conf['modelDir'] + conf['modelFilename']
 resume = conf['resumeTraining']
-num_workers = conf['numWorkers']
-batch_size = conf['batchSize']
-max_epochs = conf['maxEpochs']
 
 if (conf['preprocOnly']):
     print('Running preprocessing only')
@@ -45,6 +40,16 @@ if (conf['preprocOnly']):
 # We create two conf files, general params and model params.
 conf, mconf = tr.createConfDict()
 
+# Save from config.py in main dir
+conf['modelDirname'] = conf['modelDir'] + conf['modelFilename']
+num_workers = conf['numWorkers']
+batch_size = conf['batchSize']
+max_epochs = conf['maxEpochs']
+shuffle_training = conf['shuffleTraining']
+print_training = conf['printTraining'] == 'show' or conf['printTraining'] == 'save'
+save_or_show = conf['printTraining'] == 'save'
+print(save_or_show)
+lr = mconf['lr']
 
 if resume:
     print('==> loading checkpoint')
@@ -81,7 +86,7 @@ try:
     print('Number of workers: ' + str(num_workers) )
 
     train_loader = torch.utils.data.DataLoader(tr, batch_size=batch_size, \
-            num_workers=num_workers, shuffle=True, pin_memory=True)
+            num_workers=num_workers, shuffle=shuffle_training, pin_memory=True)
     test_loader = torch.utils.data.DataLoader(te, batch_size=batch_size, \
             num_workers=num_workers, shuffle=False, pin_memory=True)
 
@@ -109,11 +114,14 @@ try:
     if resume:
         net.load_state_dict(state['state_dict'])
 
-    #********************************** Define the optimizer ***********************
+    #********************** Define the optimizer ***********************
 
     print('==> defining optimizer')
 
-    optimizer = torch.optim.Adam(net.parameters(), lr=0.0025)
+    optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+
+    if resume:
+        optimizer.load_state_dict(state['optimizer'])
 
     for param_group in optimizer.param_groups:
         print('lr of optimizer')
@@ -121,24 +129,31 @@ try:
 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode = 'min',factor = 0.6, patience = 10, verbose = True, threshold = 3e-4, threshold_mode = 'rel')
 
-    #********************************* Training ************************************
+    #************************ Training and Validation*******************
 
-    def train(epoch):
-        #set model to train
-        net.train()
+    list_to_plot = [64, 2560, 5120, 11392]
+    def run_epoch(epoch, loader, training=True):
+        if training:
+            #set model to train
+            net.train()
+        else:
+            #otherwise, set it to eval.
+            net.eval()
 
         #initialise loss scores
-        total_train_loss = 0
+        total_loss = 0
         p_l2_total_loss = 0
         div_l2_total_loss = 0
         p_l1_total_loss = 0
         div_l1_total_loss = 0
+        div_lt_total_loss = 0
 
         n_batches = 0 # Number processed
 
         # Loss types
         _pL2Loss = nn.MSELoss()
         _divL2Loss = nn.MSELoss()
+        _divLTLoss = nn.MSELoss()
         _pL1Loss = nn.L1Loss()
         _divL1Loss = nn.L1Loss()
 
@@ -147,14 +162,16 @@ try:
         divL2Lambda = mconf['divL2Lambda']
         pL1Lambda = mconf['pL1Lambda']
         divL1Lambda = mconf['divL1Lambda']
+        divLTLambda = mconf['divLongTermLambda']
 
         #loop through data, sorted into batches
-        for batch_idx, (data, target) in enumerate (train_loader):
+        for batch_idx, (data, target) in enumerate (loader):
             if torch.cuda.is_available():
                 data, target = data.cuda(), target.cuda()
 
-            # Set gradients to zero, clearing previous batches.
-            optimizer.zero_grad()
+            if training:
+                # Set gradients to zero, clearing previous batches.
+                optimizer.zero_grad()
 
             # data indexes     |           |
             #       (dim 1)    |    2D     |    3D
@@ -170,11 +187,12 @@ try:
             #       density    |    3      |    4
 
             # Run the model forward
+            flags = data[:,3].unsqueeze(1).contiguous()
             out_p, out_U = net(data)
 
             # Calculate targets
             target_p = target[:,0].unsqueeze(1)
-            out_div = fluid.velocityDivergence(out_U.contiguous(), data[:,3].unsqueeze(1).contiguous())
+            out_div = fluid.velocityDivergence(out_U.contiguous(), flags)
             target_div = torch.zeros_like(out_div)
 
             # Measure loss and save it
@@ -185,104 +203,120 @@ try:
 
             loss_size =  pL2Loss + divL2Loss + pL1Loss + divL1Loss
 
+
+            # We calculate the divergence of a future frame.
+            if (divLTLambda > 0):
+                base_dt = mconf['dt']
+
+                if mconf['timeScaleSigma'] > 0:
+                    scale_dt = 0.2028 + torch.abs(torch.randn(1))[0] * \
+                            mconf['timeScaleSigma']
+                    mconf['dt'] = base_dt * scale_dt
+
+
+                num_future_steps = mconf['longTermDivNumSteps'][0]
+                if torch.rand(1)[0] > mconf['longTermDivProbability']:
+                    num_future_steps = mconf['longTermDivNumSteps'][1]
+
+                batch_dict = {}
+                batch_dict['p'] = out_p
+                batch_dict['U'] = out_U
+                batch_dict['flags'] = flags
+
+                with torch.no_grad():
+                    for i in range(0, num_future_steps):
+                        output_div = (i == num_future_steps)
+                        lib.simulate(conf, mconf, batch_dict, net, \
+                                'convnet', output_div=output_div)
+
+                data_lt = torch.zeros_like(data)
+                data_lt[:,0] = batch_dict['p'].squeeze(1)
+                data_lt[:,1:3] = batch_dict['U']
+                data_lt[:,3] = batch_dict['flags'].squeeze(1)
+                data_lt = data_lt.contiguous()
+
+                mconf['dt'] = base_dt
+
+                out_p_LT, out_U_LT = net(data_lt)
+                out_div_LT = fluid.velocityDivergence(out_U_LT.contiguous(), flags)
+                target_div_LT = torch.zeros_like(out_div)
+                divLTLoss = divLTLambda *_divLTLoss(out_div_LT, target_div_LT)
+
+                loss_size += divLTLoss
+
             # Print statistics
             p_l2_total_loss += pL2Loss.data.item()
             div_l2_total_loss += divL2Loss.data.item()
             p_l1_total_loss += pL1Loss.data.item()
             div_l1_total_loss += divL1Loss.data.item()
-            total_train_loss += loss_size.data.item()
+            if (divLTLambda > 0):
+                div_lt_total_loss += divLTLoss.data.item()
+            total_loss += loss_size.data.item()
 
-            # Step the optimizer
-            loss_size.backward()
-            optimizer.step()
+            shuffled = True
+            if shuffle_training and not training:
+                shuffled = False
+            if not shuffle_training and training:
+                shuffled = False
+            if print_training and (not shuffled) and (batch_idx*len(data) in list_to_plot) \
+                and ((epoch-1) % 5 == 0):
+                print_list = [batch_idx*len(data), epoch]
+                filename = 'output_{0:05d}_ep_{1:03d}.png'.format(*print_list)
+                file_plot = glob.os.path.join(m_path, filename)
+                with torch.no_grad():
+                    lib.plotField(out=[out_p[0].unsqueeze(0),
+                                       out_U[0].unsqueeze(0),
+                                       out_div[0].unsqueeze(0)],
+                                  tar=target[0].unsqueeze(0),
+                                  flags=flags[0].unsqueeze(0),
+                                  loss=[total_loss, p_l2_total_loss,
+                                        div_l2_total_loss, div_lt_total_loss,
+                                        p_l1_total_loss, div_l1_total_loss],
+                                  mconf=mconf,
+                                  epoch=epoch,
+                                  filename=file_plot,
+                                  save=save_or_show,
+                                  x_slice=104)
+
+            if training:
+                # Run the backpropagation for all the losses.
+                loss_size.backward()
+
+                # Step the optimizer
+                optimizer.step()
 
             n_batches += 1
 
-            # Print every 20th batch of an epoch
-            if batch_idx % 20 == 0:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)] \t'.format(
-                    epoch, batch_idx * len(data), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader)))
+            if training:
+                # Print every 20th batch of an epoch
+                if batch_idx % 20 == 0:
+                    print('Train Epoch: {} [{}/{} ({:.0f}%)] \t'.format(
+                        epoch, batch_idx * len(data), len(loader.dataset),
+                        100. * batch_idx / len(loader)))
 
         # Divide loss by dataset length
         p_l2_total_loss /= n_batches
         div_l2_total_loss /= n_batches
         p_l1_total_loss /= n_batches
         div_l1_total_loss /= n_batches
-        total_train_loss /= n_batches
+        div_lt_total_loss /= n_batches
+        total_loss /= n_batches
 
         # Print for the whole dataset
-        print('\nTrain set: Avg total loss: {:.6f} (L2(p): {:.6f}; L2(div): {:.6f}; L1(p): {:.6f}; L1(div): {:.6f})'.format(\
-                        total_train_loss, p_l2_total_loss, div_l2_total_loss, p_l1_total_loss, div_l1_total_loss))
+        if training:
+            sstring = 'Train'
+        else:
+            sstring = 'Validation'
+        print('\n{} set: Avg total loss: {:.6f} (L2(p): {:.6f}; L2(div): {:.6f}; \
+                L1(p): {:.6f}; L1(div): {:.6f}; LTDiv: {:.6f})'.format(\
+                        sstring,
+                        total_loss, p_l2_total_loss, div_l2_total_loss, \
+                        p_l1_total_loss, div_l1_total_loss, div_lt_total_loss))
 
         # Return loss scores
-        return total_train_loss, p_l2_total_loss, div_l2_total_loss, \
-                p_l1_total_loss, div_l1_total_loss
+        return total_loss, p_l2_total_loss, div_l2_total_loss, \
+                p_l1_total_loss, div_l1_total_loss, div_lt_total_loss
 
-    #********************************* Validation **********************************
-
-    # val is the same as train, except we don't perform backprop (with model.eval())
-    def val():
-        net.eval()
-        total_val_loss = 0
-        p_l2_total_loss = 0
-        div_l2_total_loss = 0
-        p_l1_total_loss = 0
-        div_l1_total_loss = 0
-
-        n_batches = 0
-
-        # Loss types
-        _pL2Loss = nn.MSELoss()
-        _divL2Loss = nn.MSELoss()
-        _pL1Loss = nn.L1Loss()
-        _divL1Loss = nn.L1Loss()
-
-        # Loss lambdas (multiply the corresponding loss)
-        pL2Lambda = mconf['pL2Lambda']
-        divL2Lambda = mconf['divL2Lambda']
-        pL1Lambda = mconf['pL1Lambda']
-        divL1Lambda = mconf['divL1Lambda']
-
-        for batch_idx, (data, target) in enumerate(test_loader):
-            with torch.no_grad():
-                if torch.cuda.is_available():
-                    data, target = data.cuda(), target.cuda()
-                #data, target = Variable(data), Variable(target)
-                out_p, out_U = net(data)
-
-                # Calculate targets
-                target_p = target[:,0].unsqueeze(1)
-                out_div = fluid.velocityDivergence(out_U.contiguous(), data[:,3].unsqueeze(1).contiguous())
-                target_div = torch.zeros_like(out_div)
-
-                # Measure loss and save it
-                pL2Loss = pL2Lambda *_pL2Loss(out_p, target_p)
-                divL2Loss = divL2Lambda *_divL2Loss(out_div, target_div)
-                pL1Loss =  pL1Lambda *_pL1Loss(out_p, target_p)
-                divL1Loss = divL1Lambda *_divL1Loss(out_div, target_div)
-
-                loss_size =  pL2Loss + divL2Loss + pL1Loss + divL1Loss
-
-                p_l2_total_loss += pL2Loss.data.item()
-                div_l2_total_loss += divL2Loss.data.item()
-                p_l1_total_loss += pL1Loss.data.item()
-                div_l1_total_loss += divL1Loss.data.item()
-                total_val_loss += loss_size.item()
-                n_batches += 1
-
-        p_l2_total_loss /= n_batches
-        div_l2_total_loss /= n_batches
-        p_l1_total_loss /= n_batches
-        div_l1_total_loss /= n_batches
-        total_val_loss /= n_batches
-
-        print('\nValidation set: Avg total loss: {:.6f} (L2(p): {:.6f}; L2(div): {:.6f}; L1(p): {:.6f}; L1(div): {:.6f} )'.format(\
-                total_val_loss, p_l2_total_loss, div_l2_total_loss, p_l1_total_loss, div_l1_total_loss))
-
-        # Return loss scores
-        return total_val_loss, p_l2_total_loss, div_l2_total_loss, \
-                p_l1_total_loss, div_l1_total_loss
 
     #********************************* Prepare saving files *******************************
 
@@ -294,8 +328,8 @@ try:
             copyfile(filename, bestname)
 
     # Create some arrays for recording results
-    train_loss_plot = np.empty((0,6))
-    val_loss_plot = np.empty((0,6))
+    train_loss_plot = np.empty((0,7))
+    val_loss_plot = np.empty((0,7))
 
     # Save loss to disk
     m_path = conf['modelDir']
@@ -361,15 +395,20 @@ try:
     print('==> Beginning simulation')
     for epoch in range(start_epoch, n_epochs+1):
         # Train on training set and test on validation set
-        train_loss, p_l2_tr, div_l2_tr, p_l1_tr, div_l1_tr = train(epoch)
-        val_loss, p_l2_val, div_l2_val, p_l1_val, div_l1_val = val()
+        train_loss, p_l2_tr, div_l2_tr, p_l1_tr, div_l1_tr, div_lt_tr = \
+                run_epoch(epoch, train_loader, training=True)
+        with torch.no_grad():
+            val_loss, p_l2_val, div_l2_val, p_l1_val, div_l1_val, div_lt_val = \
+                    run_epoch(epoch, test_loader, training=False)
 
         #Step scheduler, will reduce LR if loss has plateaued
-        scheduler.step(val_loss)
+        scheduler.step(train_loss)
 
         # Store training loss function
-        train_loss_plot = np.append(train_loss_plot, [[epoch, train_loss, p_l2_tr, div_l2_tr, p_l1_tr, div_l1_tr]], axis=0)
-        val_loss_plot = np.append(val_loss_plot, [[epoch, val_loss, p_l2_val, div_l2_val, p_l1_val, div_l1_val]], axis=0)
+        train_loss_plot = np.append(train_loss_plot, [[epoch, train_loss, p_l2_tr,
+            div_l2_tr, p_l1_tr, div_l1_tr, div_lt_tr]], axis=0)
+        val_loss_plot = np.append(val_loss_plot, [[epoch, val_loss, p_l2_val,
+            div_l2_val, p_l1_val, div_l1_val, div_lt_val]], axis=0)
 
         # Check if this is the best model so far and if so save to disk
         is_best = False
@@ -387,8 +426,8 @@ try:
         if epoch % conf['freqToFile'] == 0:
             plot_train_file = file_train + '.npy'
             plot_val_file = file_val + '.npy'
-            train_old = np.empty((0,6))
-            val_old = np.empty((0,6))
+            train_old = np.empty((0,7))
+            val_old = np.empty((0,7))
             if (glob.os.path.isfile(plot_train_file) and glob.os.path.isfile(plot_val_file)):
                 train_old = np.load(plot_train_file)
                 val_old = np.load(plot_val_file)
@@ -397,8 +436,8 @@ try:
             np.save(file_val, val_loss)
             np.save(file_train, train_loss)
             # Reset arrays
-            train_loss_plot = np.empty((0,6))
-            val_loss_plot = np.empty((0,6))
+            train_loss_plot = np.empty((0,7))
+            val_loss_plot = np.empty((0,7))
 
 finally:
     if resume:

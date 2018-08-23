@@ -9,10 +9,6 @@ import torch.optim as optim
 from torch.autograd import Variable
 import torch.utils.data
 
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-import matplotlib.cm as cm
-import numpy as np
 import glob
 from shutil import copyfile
 import importlib.util
@@ -93,189 +89,78 @@ try:
 
     net.load_state_dict(state['state_dict'])
 
-    #********************************* Plot functions *************************************
-
-    def plotField(output, target, mconf, flags):
-        div = 0
-        exit = True
-        p_out = output[0]
-        p_tar = target[:,0].unsqueeze(1)
-        U_norm_out = torch.zeros_like(p_out)
-        U_norm_tar = torch.zeros_like(p_tar)
-
-        torch.norm(output[1], p=2, dim=1, keepdim=True, out=U_norm_out)
-        torch.norm(target[:,1:3], p=2, dim=1, keepdim=True, out=U_norm_tar)
-
-        div = output[2]
-
-        err_p = (p_out - p_tar)**2
-        err_U = (U_norm_out - U_norm_tar)**2
-        err_div = (div)**2
-
-        max_val_p = np.maximum(torch.max(p_tar).cpu().data.numpy(), \
-                             torch.max(p_out).cpu().data.numpy() )
-        min_val_p = np.minimum(torch.min(p_tar).cpu().data.numpy(), \
-                             torch.min(p_out).cpu().data.numpy())
-        max_val_U = np.maximum(torch.max(U_norm_out).cpu().data.numpy(), \
-                             torch.max(U_norm_tar).cpu().data.numpy() )
-        min_val_U = np.minimum(torch.min(U_norm_out).cpu().data.numpy(), \
-                             torch.min(U_norm_tar).cpu().data.numpy())
-        max_err_p = torch.max(err_p).cpu().data.numpy()
-        max_err_U = torch.max(err_U).cpu().data.numpy()
-
-        max_div = torch.max(div).cpu().data.numpy()
-        min_div = torch.min(div).cpu().data.numpy()
-
-        mask = flags.eq(2)
-        p_tar.masked_fill_(mask, 100)
-        p_out.masked_fill_(mask, 100)
-        U_norm_tar.masked_fill_(mask, 100)
-        U_norm_out.masked_fill_(mask, 100)
-        div.masked_fill_(mask, 100)
-
-        err_p.masked_fill_(mask, 100)
-        err_U.masked_fill_(mask, 100)
-        err_div.masked_fill_(mask, 100)
-
-        p_tar_np =torch.squeeze(p_tar.cpu()).data.numpy()
-        p_out_np =torch.squeeze(p_out.cpu()).data.numpy()
-        U_tar_np =torch.squeeze(U_norm_tar.cpu()).data.numpy()
-        U_out_np =torch.squeeze(U_norm_out.cpu()).data.numpy()
-        div_np =torch.squeeze(div).cpu().data.numpy()
-        err_p_np =torch.squeeze(err_p.cpu()).data.numpy()
-        err_U_np =torch.squeeze(err_U.cpu()).data.numpy()
-        err_div_np =torch.squeeze(err_div.cpu()).data.numpy()
-
-        my_cmap = cm.jet
-        my_cmap.set_over('gray')
-        my_cmap.set_under('gray')
-
-        title_list = []
-        numLoss = 0
-        if mconf['pL2Lambda'] > 0:
-            numLoss +=1
-
-        if mconf['divL2Lambda'] > 0:
-            numLoss +=1
-
-        if mconf['pL1Lambda'] > 0:
-            numLoss +=1
-
-        if mconf['divL1Lambda'] > 0:
-            numLoss +=1
-
-        if mconf['pL2Lambda'] > 0:
-            title_list.append(str(mconf['pL2Lambda']) + ' * L2(p)')
-
-        if mconf['divL2Lambda'] > 0:
-            title_list.append(str(mconf['divL2Lambda']) + ' * L2(div)')
-
-        if mconf['pL1Lambda'] > 0:
-            title_list.append(str(mconf['pL1Lambda']) + ' * L1(p)')
-
-        if mconf['divL1Lambda'] > 0:
-            title_list.append(str(mconf['divL1Lambda']) + ' * L1(div)')
-
-        title = ''
-        for string in range(0, numLoss - 1):
-            title += title_list[string] + ' + '
-        title += title_list[numLoss-1]
-
-        nrow = 3
-        ncol = 3
-
-        fig = plt.figure(figsize=(ncol+1, nrow+1))
-        gs = gridspec.GridSpec(3, 3, width_ratios=[1, 1, 1],
-                         wspace=0.1, hspace=0.1, top=0.9, bottom=0.01, left=0.1, right=0.9)
-        fig.suptitle('FluidNet output for loss = ' + title )
-
-        #plt.subplot2grid((3,3), (0,0))
-        ax = plt.subplot(gs[0,0])
-        ax.set_title('P_target')
-        ax.axis('off')
-        ax.imshow(p_tar_np,cmap=my_cmap, origin='lower', interpolation='none', \
-                clim=[min_val_p,max_val_p])
-
-        #plt.subplot2grid((3,3), (1,0))
-        ax = plt.subplot(gs[1,0])
-        ax.set_title('P_predicted')
-        ax.axis('off')
-        ax.imshow(p_out_np,cmap=my_cmap, origin='lower', interpolation='none', \
-                clim=[min_val_p,max_val_p])
-
-        #plt.subplot2grid((3,3), (2,0))
-        ax = plt.subplot(gs[2,0])
-        ax.set_title('error P')
-        ax.axis('off')
-        ax.imshow(err_p_np,cmap=my_cmap, origin='lower', interpolation='none', \
-                clim=[0,max_err_p])
-
-        #plt.subplot2grid((3,3), (0,1))
-        ax = plt.subplot(gs[0,1])
-        ax.set_title('|U|_target')
-        ax.axis('off')
-        ax.imshow(U_tar_np,cmap=my_cmap, origin='lower', interpolation='none', \
-                clim=[min_val_U,max_val_U])
-
-        #plt.subplot2grid((3,3), (1,1))
-        ax = plt.subplot(gs[1,1])
-        ax.set_title('|U|_predicted')
-        ax.axis('off')
-        ax.imshow(U_out_np,cmap=my_cmap, origin='lower', interpolation='none', \
-                clim=[min_val_U,max_val_U])
-
-        #plt.subplot2grid((3,3), (2,1))
-        ax = plt.subplot(gs[2,1])
-        ax.set_title('error |U|')
-        ax.axis('off')
-        ax.imshow(err_U_np,cmap=my_cmap, origin='lower', interpolation='none', \
-                clim=[0,max_err_U])
-
-        #plt.subplot2grid((3,3), (0,2))
-        ax = plt.subplot(gs[0,2])
-        ax.set_title('div at output')
-        ax.axis('off')
-        ax.imshow(div_np,cmap=my_cmap, origin='lower', interpolation='none', \
-                clim=[min_div,max_div])
-
-        #plt.subplot2grid((3,3), (1,2))
-        ax = plt.subplot(gs[1,2])
-        ax.set_title('div error')
-        ax.axis('off')
-        ax.imshow(err_div_np,cmap=my_cmap, origin='lower', interpolation='none', \
-                clim=[0,max_div**2])
-
-        #cbar_ax_p = fig.add_axes([0.08, 0.45, 0.01, 0.33])
-        #fig.colorbar(imP, cax=cbar_ax_p, orientation='vertical')
-        #cbar_ax_U = fig.add_axes([0.375, 0.45, 0.01, 0.33])
-        #fig.colorbar(imU, cax=cbar_ax_U, orientation='vertical')
-        plt.show(block=True)
-
-
     #********************************* Run the model and print ****************************
     from itertools import count
 
     batch_print = [100, 1000, 4000, 5000, 8000, 10000, 15000, 20000]
     def val():
         net.eval()
-        loss = nn.MSELoss()
-        total_val_loss = 0
+
+        #initialise loss scores
+        total_loss = 0
+        p_l2_total_loss = 0
+        div_l2_total_loss = 0
+        p_l1_total_loss = 0
+        div_l1_total_loss = 0
+        div_lt_total_loss = 0
+
+        n_batches = 0 # Number processed
+
+        # Loss types
+        _pL2Loss = nn.MSELoss()
+        _divL2Loss = nn.MSELoss()
+        _divLTLoss = nn.MSELoss()
+        _pL1Loss = nn.L1Loss()
+        _divL1Loss = nn.L1Loss()
+
+        # Loss lambdas (multiply the corresponding loss)
+        pL2Lambda = mconf['pL2Lambda']
+        divL2Lambda = mconf['divL2Lambda']
+        pL1Lambda = mconf['pL1Lambda']
+        divL1Lambda = mconf['divL1Lambda']
+        divLTLambda = mconf['divLongTermLambda']
+
         for batch_idx, (data, target) in zip(count(step=1), test_loader):
             with torch.no_grad():
                 if torch.cuda.is_available():
                     data, target = data.cuda(), target.cuda()
                 if batch_idx in batch_print:
                     out_p, out_U = net(data)
+                    flags = data[:,3].unsqueeze(1).contiguous()
                     target_p = target[:,0].unsqueeze(1)
                     out_div = fluid.velocityDivergence(\
                             out_U.contiguous(), \
-                            data[:,3].unsqueeze(1).contiguous())
+                            flags)
                     target_div = torch.zeros_like(out_div)
 
-                    loss_size = 0
                     # Measure loss and save it
-                    plotField([out_p, out_U, out_div], target, mconf, data[:,3].unsqueeze(1).contiguous())
+                    pL2Loss = pL2Lambda *_pL2Loss(out_p, target_p)
+                    divL2Loss = divL2Lambda *_divL2Loss(out_div, target_div)
+                    pL1Loss =  pL1Lambda *_pL1Loss(out_p, target_p)
+                    divL1Loss = divL1Lambda *_divL1Loss(out_div, target_div)
 
+                    loss_size =  pL2Loss + divL2Loss + pL1Loss + divL1Loss
+
+                    # Print statistics
+                    p_l2_total_loss += pL2Loss.data.item()
+                    div_l2_total_loss += divL2Loss.data.item()
+                    p_l1_total_loss += pL1Loss.data.item()
+                    div_l1_total_loss += divL1Loss.data.item()
+                    #if (divLTLambda > 0):
+                    #    div_lt_total_loss += divLTLoss.data.item()
+                    total_loss += loss_size.data.item()
+
+
+                    # Measure loss and save it
+                    lib.plotField(out=[out_p, out_U, out_div],
+                                  tar=target,
+                                  flags=flags,
+                                  loss=[total_loss, p_l2_total_loss,
+                                        div_l2_total_loss, div_lt_total_loss,
+                                        p_l1_total_loss, div_l1_total_loss],
+                                  mconf=mconf,
+                                  save=False,
+                                  y_slice=8)
 
     #********************************* Run one epoch ***************************************
 

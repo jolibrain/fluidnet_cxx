@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from lib import fluid
+from lib import fluid, MultiScaleNet
 from math import inf
 
 class _ScaleNet(nn.Module):
@@ -72,6 +72,9 @@ class FluidNet(nn.Module):
         # Output channels = 1 (pressure)
         self.convOut = torch.nn.Conv2d(16, 1, kernel_size=1)
 
+        # MultiScaleNet
+        self.multiScale = MultiScaleNet(self.inDims)
+
     def forward(self, input_):
 
         # data indexes     |           |
@@ -118,7 +121,7 @@ class FluidNet(nn.Module):
                 UDiv = input_[:,1:3].contiguous()
 
             # Apply setWallBcs to zero out obstacles velocities on the boundary
-            fluid.setWallBcs(UDiv, flags)
+            UDiv = fluid.setWallBcs(UDiv, flags)
 
             if self.mconf['inputChannels']['div']:
                 div = fluid.velocityDivergence(UDiv, flags)
@@ -169,31 +172,37 @@ class FluidNet(nn.Module):
             # Squeeze unary dimension as we are in 2D
             x = torch.squeeze(x,2)
 
-        x = F.relu(self.conv1(x))
+        if self.mconf['model'] == 'ScaleNet':
+            p = self.multiScale(x)
 
-        # We divide the network in 3 banks, applying average pooling
-        x1 = self.modDown1(x)
-        x2 = self.modDown2(x)
+        else:
+            # Inital layers
+            x = F.relu(self.conv1(x))
 
-        # Process every bank in parallel
-        x0 = self.convBank(x)
-        x1 = self.convBank(x1)
-        x2 = self.convBank(x2)
+            # We divide the network in 3 banks, applying average pooling
+            x1 = self.modDown1(x)
+            x2 = self.modDown2(x)
 
-        # Upsample banks 1 and 2 to bank 0 size and accumulate inputs
-        #x1 = self.upscale1(x1)
-        #x2 = self.upscale2(x2)
-        x1 = self.deconv1(x1)
-        x2 = self.deconv2(x2)
+            # Process every bank in parallel
+            x0 = self.convBank(x)
+            x1 = self.convBank(x1)
+            x2 = self.convBank(x2)
 
-        x = torch.cat((x0, x1, x2), dim=1)
-        #x = x0 + x1 + x2
+            # Upsample banks 1 and 2 to bank 0 size and accumulate inputs
+            #x1 = self.upscale1(x1)
+            #x2 = self.upscale2(x2)
+            x1 = self.deconv1(x1)
+            x2 = self.deconv2(x2)
 
-        # Apply last 2 convolutions
-        x = F.relu(self.conv2(x))
+            x = torch.cat((x0, x1, x2), dim=1)
+            #x = x0 + x1 + x2
 
-        # Output pressure (1 chan)
-        p = self.convOut(x)
+            # Apply last 2 convolutions
+            x = F.relu(self.conv2(x))
+
+            # Output pressure (1 chan)
+            p = self.convOut(x)
+
 
         # Add back the unary dimension
         if not self.is3D:
@@ -205,9 +214,11 @@ class FluidNet(nn.Module):
 
         # We now UNDO the scale factor we applied on the input.
         if self.mconf['normalizeInput']:
-            torch.mul(p, s)  # Applies p' = *= scale
-            torch.mul(UDiv, s)
+            p = torch.mul(p,s)  # Applies p' = *= scale
+            UDiv = torch.mul(UDiv,s)
 
+        # Set BCs after velocity update.
+        UDiv = fluid.setWallBcs(UDiv, flags)
         return p, UDiv
 
 

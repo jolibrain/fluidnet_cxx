@@ -125,7 +125,7 @@ T MacCormackClampMAC
 // Stable MaCormack Method") tends to add too much high-frequency detail.
 T advectVel
 (
-  float dt, T U, T flags,
+  float dt, T orig, T U, T flags,
   const std::string method_str,
   int bnd,
   const float maccormack_strength
@@ -133,8 +133,10 @@ T advectVel
 
 std::vector<T> solveLinearSystemJacobi
 (
+   float dt,
    T flags,
    T div,
+   T density,
    const bool is_3d,
    const float p_tol,
    const int max_iter,

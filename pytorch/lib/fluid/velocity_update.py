@@ -1,5 +1,7 @@
 import torch
 
+from . import CellType
+
 # *****************************************************************************
 # velocityUpdate
 # *****************************************************************************
@@ -13,7 +15,7 @@ import torch
 # input U - vel field (size(2) can be 2 or 3, indicating 2D / 3D)
 # input flags - input occupancy grid
 
-def velocityUpdate(pressure, U, flags):
+def velocityUpdate(dt, pressure, U, flags, density=None):
     # Check arguments.
     assert U.dim() == 5 and flags.dim() == 5 and pressure.dim() == 5, \
                "Dimension mismatch"
@@ -34,40 +36,69 @@ def velocityUpdate(pressure, U, flags):
     assert U.is_contiguous() and flags.is_contiguous() and \
               pressure.is_contiguous(), "Input is not contiguous"
 
+    if density is None:
+        density = torch.ones_like(pressure)
     # First, we build the mask for detecting fluid cells. Borders are left untouched.
     # mask_fluid   Fluid cells.
     # mask_fluid_i Fluid cells with (i-1) neighbour also a fluid.
     # mask_fluid_j Fluid cells with (j-1) neighbour also a fluid.
     # mask_fluid_k FLuid cells with (k-1) neighbour also a fluid.
 
-    TypeFluid = 1
-    TypeObstacle = 2
+    # Second, we detect obstacle cells (in Manta they do it with empty cells, but it
+    # is clear that there must be a treatment of solid cells which are not empty.
+    # See Bridson p44 for algorithm and boundaries treatment.
 
     if not is3D:
-        mask_fluid = flags.narrow(4, 1, w-2).narrow(3, 1, h-2).eq(TypeFluid)
+        # Current cell is fluid
+        mask_fluid = flags.narrow(4, 1, w-2).narrow(3, 1, h-2).eq(CellType.TypeFluid)
+        # Current is fluid and neighbour to left or down are fluid
         mask_fluid_i = mask_fluid.__and__ \
-            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).eq(TypeFluid))
+            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).eq(CellType.TypeFluid))
         mask_fluid_j = mask_fluid.__and__ \
-            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(TypeFluid))
+            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(CellType.TypeFluid))
+        # Current cell is fluid and neighbours to left or down are obstacle
+        mask_fluid_obs_im1 = mask_fluid.__and__ \
+            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).eq(CellType.TypeObstacle))
+        mask_fluid_obs_jm1 = mask_fluid.__and__ \
+            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(CellType.TypeObstacle))
+        # Current cell is obstacle
+        mask_obs = flags.narrow(4, 1, w-2).narrow(3, 1, h-2).eq(CellType.TypeObstacle)
+        # Current cell is obstacle and neighbours to left or down are fluid
+        mask_obs_fluid_im1 = mask_obs.__and__ \
+            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).eq(CellType.TypeFluid))
+        mask_obs_fluid_jm1 = mask_obs.__and__ \
+            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(CellType.TypeFluid))
+
     else:
-        mask_fluid  = flags.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).eq(TypeFluid)
+        # TODO: implement 3D bcs well.
+        # TODO: add outlfow (change in advection required)
+        mask_fluid  = flags.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).eq(CellType.TypeFluid)
         mask_fluid_i = mask_fluid.__and__ \
-            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).eq(TypeFluid))
+            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).eq(CellType.TypeFluid))
         mask_fluid_j = mask_fluid.__and__ \
-            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).narrow(2, 1, d-2).eq(TypeFluid))
+            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).narrow(2, 1, d-2).eq(CellType.TypeFluid))
         mask_fluid_k = mask_fluid.__and__ \
-            (flags.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 0, d-2).eq(TypeFluid))
+            (flags.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 0, d-2).eq(CellType.TypeFluid))
 
     # Cast into float or double tensor and cat into a single mask along chan.
     mask_fluid_i_f = mask_fluid_i.type(U.type())
     mask_fluid_j_f = mask_fluid_j.type(U.type())
+
+    mask_fluid_obs_i_f = mask_fluid_obs_im1.type(U.type())
+    mask_fluid_obs_j_f = mask_fluid_obs_jm1.type(U.type())
+
+    mask_obs_fluid_i_f = mask_obs_fluid_im1.type(U.type())
+    mask_obs_fluid_j_f = mask_obs_fluid_jm1.type(U.type())
+
     if is3D:
         mask_fluid_k_f = mask_fluid_k.type(U.type())
 
     if not is3D:
-        mask = torch.cat((mask_fluid_i_f, mask_fluid_j_f), 1).contiguous()
+        mask_fluid = torch.cat((mask_fluid_i_f, mask_fluid_j_f), 1).contiguous()
+        mask_fluid_obs = torch.cat((mask_fluid_obs_i_f, mask_fluid_obs_j_f), 1).contiguous()
+        mask_obs_fluid = torch.cat((mask_obs_fluid_i_f, mask_obs_fluid_j_f), 1).contiguous()
     else:
-        mask = torch.cat((mask_fluid_i_f, mask_fluid_j_f, mask_fluid_k_f), 1).contiguous()
+        mask_fluid = torch.cat((mask_fluid_i_f, mask_fluid_j_f, mask_fluid_k_f), 1).contiguous()
 
     # pressure tensor.
     #Pijk    Pressure at (i,j,k) in 3 channels (2 for 2D).
@@ -89,13 +120,23 @@ def velocityUpdate(pressure, U, flags):
         Pijk_m[:,1] = pressure.narrow(4, 1, w-2).narrow(3, 0, h-2).narrow(2, 1, d-2).squeeze(1)
         Pijk_m[:,2] = pressure.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 0, d-2).squeeze(1)
 
-    # u = u - grad(p)
     # grad(p) = [[ p(i,j,k) - p(i-1,j,k) ]
     #            [ p(i,j,k) - p(i,j-1,k) ]
     #            [ p(i,j,k) - p(i,j,k-1) ]]
     if not is3D:
-        U[:,:,:,1:(h-1),1:(w-1)] = mask * \
-            (U.narrow(4, 1, w-2).narrow(3, 1, h-2) - (Pijk - Pijk_m))
+        # Three cases:
+        # 1) Cell is fluid and left neighbour is fluid:
+        # u = u - grad(p)
+        # 2) Cell is fluid and left neighbour is obstacle
+        # u = u - p(i,j)
+        # 3) Cell is obstacle and left neighbour is fluid
+        # u = u + p(i-1,j)
+        U[:,:,:,1:(h-1),1:(w-1)] = (dt / density) * (mask_fluid * \
+            (U.narrow(4, 1, w-2).narrow(3, 1, h-2) - (Pijk - Pijk_m)) + \
+             mask_fluid_obs * \
+            (U.narrow(4, 1, w-2).narrow(3, 1, h-2) - Pijk) + \
+            mask_obs_fluid * \
+            (U.narrow(4, 1, w-2).narrow(3, 1, h-2) + Pijk_m))
     else:
         U[:,:,1:(d-1),1:(h-1),1:(w-1)] =  mask * \
             (U.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2) - (Pijk - Pijk_m))
