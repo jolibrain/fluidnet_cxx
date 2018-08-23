@@ -75,7 +75,7 @@ class FluidNet(nn.Module):
         # MultiScaleNet
         self.multiScale = MultiScaleNet(self.inDims)
 
-    def forward(self, input_):
+    def forward(self, input_, dt=1.0):
 
         # data indexes     |           |
         #       (dim 1)    |    2D     |    3D
@@ -210,7 +210,7 @@ class FluidNet(nn.Module):
 
         # Correct U = UDiv - grad(p)
         # flags is the one with Manta's values, not occupancy in [0,1]
-        fluid.velocityUpdate(p, UDiv, flags)
+        fluid.velocityUpdate(dt, p, UDiv, flags)
 
         # We now UNDO the scale factor we applied on the input.
         if self.mconf['normalizeInput']:

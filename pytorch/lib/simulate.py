@@ -204,7 +204,7 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
         # No need to call it again.
         net.eval()
         data = torch.cat((p, U, flags, density), 1)
-        p, U = net(data)
+        p, U = net(data, dt=dt)
 
     elif (sim_method == 'jacobi'):
         div = fluid.velocityDivergence(U, flags)
@@ -216,7 +216,7 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
         p, residual = fluid.solveLinearSystemJacobi(flags, div, is3D, p_tol=pTol, \
                 max_iter=maxIter)
 
-        fluid.velocityUpdate(p, U, flags)
+        fluid.velocityUpdate(dt, p, U, flags)
 
     if sim_method != 'convnet':
         U = fluid.setWallBcs(U, flags)

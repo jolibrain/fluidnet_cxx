@@ -188,7 +188,7 @@ try:
 
             # Run the model forward
             flags = data[:,3].unsqueeze(1).contiguous()
-            out_p, out_U = net(data)
+            out_p, out_U = net(data, dt=mconf['dt'])
 
             # Calculate targets
             target_p = target[:,0].unsqueeze(1)
@@ -237,7 +237,7 @@ try:
 
                 mconf['dt'] = base_dt
 
-                out_p_LT, out_U_LT = net(data_lt)
+                out_p_LT, out_U_LT = net(data_lt, dt=mconf['dt'])
                 out_div_LT = fluid.velocityDivergence(out_U_LT.contiguous(), flags)
                 target_div_LT = torch.zeros_like(out_div)
                 divLTLoss = divLTLambda *_divLTLoss(out_div_LT, target_div_LT)
