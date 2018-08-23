@@ -15,7 +15,7 @@ from . import CellType
 # input flags - input occupancy grid
 # input viscosity - viscosity
 
-def addViscosity(dt, U, flags, viscosity, density=None):
+def addViscosity(dt, U, flags, viscosity):
     # Check arguments.
     assert U.dim() == 5 and flags.dim() == 5, "Dimension mismatch"
     assert flags.size(1) == 1, "flags is not scalar"
@@ -32,11 +32,6 @@ def addViscosity(dt, U, flags, viscosity, density=None):
     assert U.size(0) == b and U.size(2) == d and U.size(3) == h \
         and U.size(4) == w, "size mismatch"
     assert U.is_contiguous() and flags.is_contiguous(), "Input is not contiguous"
-
-    if density is None:
-        density = torch.ones(b,1,d,h,w)
-    else:
-        assert density.is_same_size(flags), "Size mismatch"
 
     # First, we build the mask for detecting fluid cells. Borders are left untouched.
     # mask_fluid   Fluid cells.
@@ -69,7 +64,7 @@ def addViscosity(dt, U, flags, viscosity, density=None):
     if not is3D:
         U[:,:,:,1:(h-1),1:(w-1)] = mask * (\
             U.narrow(4, 1, w-2).narrow(3, 1, h-2) +
-            dt * viscosity / density *(
+            dt * viscosity  *(
             U.narrow(4, 2, w-2).narrow(3, 1, h-2) + \
             U.narrow(4, 1, w-2).narrow(3, 2, h-2) + \
             U.narrow(4, 0, w-2).narrow(3, 1, h-2) + \

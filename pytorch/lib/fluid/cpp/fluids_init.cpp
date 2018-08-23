@@ -782,7 +782,6 @@ std::vector<T> solveLinearSystemJacobi
    float dt,
    T flags,
    T div,
-   T density,
    const bool is3D,
    const float p_tol = 1e-5,
    const int max_iter = 1000,
@@ -924,7 +923,7 @@ std::vector<T> solveLinearSystemJacobi
     p6.masked_scatter_(neighborFrontObs, pC.masked_select(neighborFrontObs));
 
     const float denom = is3D ? 6 : 4;
-    (*cur_p).masked_scatter_(mCont, ( (dt / density) *
+    (*cur_p).masked_scatter_(mCont, ( dt *
                 (p1 + p2 + p3 + p4 + p5 + p6 + div) / denom).masked_select(mCont));
 
     // Currrent iteration output is now in cur_pressure

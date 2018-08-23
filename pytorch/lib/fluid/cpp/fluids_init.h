@@ -136,7 +136,6 @@ std::vector<T> solveLinearSystemJacobi
    float dt,
    T flags,
    T div,
-   T density,
    const bool is_3d,
    const float p_tol,
    const int max_iter,
