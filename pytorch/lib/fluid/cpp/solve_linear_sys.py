@@ -1,8 +1,7 @@
 import torch
 import fluidnet_cpp
 
-def solveLinearSystemJacobi(dt, flags, div, density=None, is_3d=False, p_tol=1e-5, max_iter=1000,
-        verbose=False):
+def solveLinearSystemJacobi(dt, flags, div, is_3d=False, p_tol=1e-5, max_iter=1000, verbose=False):
     r"""Solves the linear system using the Jacobi method.
         Note: Since we don't receive a velocity field, we need to receive the is3D
         flag from the caller.
@@ -34,12 +33,8 @@ def solveLinearSystemJacobi(dt, flags, div, density=None, is_3d=False, p_tol=1e-
     assert div.is_same_size(flags), "Size mismatch"
 
     assert flags.is_contiguous() and div.is_contiguous(), "Input is not contiguous"
-    if density is None:
-        density = torch.ones_like(div)
-    else:
-        assert density.is_same_size(flags), "Size mismatch"
 
-    p, p_tol = fluidnet_cpp.solve_linear_system(dt, flags, div, density, is_3d, \
+    p, p_tol = fluidnet_cpp.solve_linear_system(dt, flags, div, is_3d, \
             p_tol, max_iter, verbose)
     return p, p_tol
 

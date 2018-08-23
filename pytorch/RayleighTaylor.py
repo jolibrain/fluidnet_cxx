@@ -13,6 +13,9 @@ if 'DISPLAY' not in os.environ:
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.cm as cm
+from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
+from mpl_toolkits.axes_grid1.colorbar import colorbar
+
 import numpy as np
 import numpy.ma as ma
 
@@ -43,40 +46,51 @@ def createRayleighTaylorBCs(batch_dict, mconf, rho1, rho2):
     # batch_dict at input: {p, UDiv, flags, density}
     assert len(batch_dict) == 4, "Batch must contain 4 tensors (p, UDiv, flags, density)"
     UDiv = batch_dict['U']
-    density = batch_dict['density']
     flags = batch_dict['flags']
 
     resX = UDiv.size(4)
     resY = UDiv.size(3)
 
     # Here, we just impose initial conditions.
-    # Upper layer rho2 = 2, vel = 0
-    # Lower layer rho1 = 1, vel = 0
+    # Upper layer rho2, vel = 0
+    # Lower layer rho1, vel = 0
 
     X = torch.arange(0, resX, device=cuda).view(resX).expand((1,resY,resX))
     Y = torch.arange(0, resY, device=cuda).view(resY, 1).expand((1,resY,resX))
+    coord = torch.cat((X,Y), dim=0).unsqueeze(0).unsqueeze(2)
 
-    upper_mask = ((Y/resY) >= (0.5 + 0.1* \
-        torch.cos(math.pi*(X/resX))))
-    lower_mask = upper_mask.eq(0)
-    density.masked_fill_(upper_mask, rho2)
-    density.masked_fill_(lower_mask, rho1)
+    # Atwood number
+    #A = ((1+rho2) - (1+rho1)) / ((1+rho2) + (1+rho1))
+    #print('Atwood number : ' + str(A))
+    #density = ((1-A) * torch.tanh(100*(coord[:,1]/resY - (0.85 - \
+    #                0.05*torch.cos(math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
+    A = (rho2 - rho1) / (rho2 + rho1)
+    density = 0.5*(rho2 + rho2*torch.tanh(100*(coord[:,1]/resY - (0.5 - \
+                    0.005*torch.cos(math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
+
+    print('density')
+    print(density)
+    #upper_mask = ((Y/resY) >= (0.5 + 0.01 * \
+    #    torch.cos(math.pi*(X/resX))))
+    #lower_mask = upper_mask.eq(0)
+    #density.masked_fill_(upper_mask, rho2)
+    #density.masked_fill_(lower_mask, rho1)
     batch_dict['density'] = density
-
     #Initialize pressure to hydrostatic:
     # p = 0 on top
     # p = P0 - rho*g*y
-    gravity = torch.FloatTensor(3).fill_(0).cuda()
-    buoyancyScale = mconf['buoyancyScale']
-    gravity[0] = mconf['gravityVec']['x']
-    gravity[1] = mconf['gravityVec']['y']
-    gravity[2] = mconf['gravityVec']['z']
-    gravity.mul_(buoyancyScale)
+    #gravity = torch.FloatTensor(3).fill_(0).cuda()
+    #buoyancyScale = mconf['buoyancyScale']
+    #gravity[0] = mconf['gravityVec']['x']
+    #gravity[1] = mconf['gravityVec']['y']
+    #gravity[2] = mconf['gravityVec']['z']
+    #gravity.mul_(-buoyancyScale)
 
-    pressure = -density*Y*gravity[1]
-    fluid.velocityUpdate(pressure, UDiv, flags)
-    batch_dict['U'] = UDiv
-
+    #pressure = coord[:,1].unsqueeze(1)*gravity[1]
+    #fluid.velocityUpdate(0.1, pressure, UDiv, flags)
+    #batch_dict['U'] = UDiv
+    #print(pressure)
+    #print(UDiv[:,1])
     # batch_dict at output = {p, UDiv, flags, density}
 
 #********************************** Define Config ******************************
@@ -132,15 +146,8 @@ try:
         # Create model and print layers and params
         cuda = torch.device('cuda')
 
-        net = model_saved.FluidNet(mconf, dropout=False)
-        if torch.cuda.is_available():
-            net = net.cuda()
-        #lib.summary(net, (3,1,128,128))
-
-        net.load_state_dict(state['state_dict'])
-
-        resX = 107#6000
-        resY = 400#800
+        resX = 10#6000
+        resY = 40#800
 
         p =       torch.zeros((1,1,1,resY,resX), dtype=torch.float).cuda()
         U =       torch.zeros((1,2,1,resY,resX), dtype=torch.float).cuda()
@@ -154,18 +161,9 @@ try:
         batch_dict['flags'] = flags
         batch_dict['density'] = density
 
-        #centerX = 20#500
-        #centerY = resY // 2
-        #radCylinder = 3#80.5
-        #inlet_vel = torch.zeros(2)
-        #inlet_vel[0] = 1
-        #inlet_vel[1] = 0
-        #createCylinderBCs(batch_dict, inlet_vel,
-        #                resX, resY,
-        #                centerX, centerY, radCylinder)
         restart = False
         real_time = True
-        folder = 'data2/rayleigh_taylor_jacobi/'
+        folder = 'data2/rayleigh_taylor_atwood/'
         filename_restart = folder + 'restart.pth'
         method = 'jacobi'
         it = 0
@@ -176,27 +174,25 @@ try:
             print('Restarting at it = ' + str(it))
 
         mconf['maccormackStrength'] = 0.6
-        mconf['buoyancyScale'] = 0.2/resY  #0.01/resY
-        mconf['gravityScale'] = 0.0/resY
+        mconf['buoyancyScale'] = 1.#0.2#0.1#9.81/resY
+        mconf['gravityScale'] = 0.#0.1#2.0/resY
         mconf['viscosity'] = 0
-        mconf['dt'] = 0.1
-        mconf['jacobiIter'] = 34
+        mconf['dt'] = 1.0
+        mconf['jacobiIter'] = 50
 
-        mconf['gravityVec'] = {'x': 0, 'y':1, 'z': 0}
-        #fig = plt.figure(figsize=(10,6))
-        #mask_np = torch.squeeze(batch_dict['U'][:,0]).cpu().data.numpy()
-        #plt.imshow(mask_np[:,:200], origin='lower', interpolation='none')
-        #plt.show(block=True)
+        mconf['gravityVec'] = {'x': 0, 'y': -1, 'z': 0}
+        max_iter = 1000
+        outIter = 10
 
-        #print(batch_dict['U'][:,0])
-        #createPlumeBCs(batch_dict, density_val, plume_scale, rad)
-        max_iter = 80000
-        outIter = 100
+        net = model_saved.FluidNet(mconf, dropout=False)
+        if torch.cuda.is_available():
+            net = net.cuda()
+        net.load_state_dict(state['state_dict'])
 
         my_map = cm.jet
         my_map.set_bad('gray')
 
-        skip =  20
+        skip = 10
         scale = 0.1
         scale_units = 'xy'
         angles = 'xy'
@@ -214,26 +210,33 @@ try:
         X, Y = np.linspace(0, resX-1, num=resX),\
                 np.linspace(0, resY-1, num=resY)
 
-        createRayleighTaylorBCs(batch_dict, mconf, rho1=1, rho2=2)
+        createRayleighTaylorBCs(batch_dict, mconf, rho1=0.0, rho2=0.1)
         tensor_vel = batch_dict['U'].clone()
         u1 = (torch.zeros_like(torch.squeeze(tensor_vel[:,0]))).cpu().data.numpy()
         v1 = (torch.zeros_like(torch.squeeze(tensor_vel[:,0]))).cpu().data.numpy()
 
-
+        #rho_init = torch.squeeze(batch_dict['density'].clone()).cpu().data.numpy()
+        #plt.imshow(rho_init)
+        #plt.show(block=True)
         if real_time:
             fig = plt.figure(figsize=(20,10))
-            gs = gridspec.GridSpec(1,4)
+            gs = gridspec.GridSpec(1,5,
+                 wspace=0.5, hspace=0.2)
+
             fig.show()
             fig.canvas.draw()
             ax_rho = fig.add_subplot(gs[0], frameon=False, aspect=1)
+            cax_rho = make_axes_locatable(ax_rho).append_axes("right", size="5%", pad="2%")
             ax_velx = fig.add_subplot(gs[1], frameon=False, aspect=1)
             ax_vely = fig.add_subplot(gs[2], frameon=False, aspect=1)
             ax_p = fig.add_subplot(gs[3], frameon=False, aspect=1)
+            cax_p = make_axes_locatable(ax_p).append_axes("right", size="5%", pad="2%")
+            ax_div = fig.add_subplot(gs[4], frameon=False, aspect=1)
+            cax_div = make_axes_locatable(ax_div).append_axes("right", size="5%", pad="2%")
             qx = ax_rho.quiver(X[:maxX_win:skip], Y[:maxY_win:skip],
                 u1[minY:maxY:skip,minX:maxX:skip],
                 v1[minY:maxY:skip,minX:maxX:skip],
-                scale = 1,
-                scale_units = 'height',
+                #scale_units = 'height',
                 #headwidth=headwidth, headlength=headlength,
                 color='black')
         #ax_vely = fig.add_subplot(gs[1], frameon=False, aspect=1)
@@ -242,13 +245,18 @@ try:
             lib.simulate(conf, mconf, batch_dict, net, method)
             if (it% outIter == 0):
                 print("It = " + str(it))
+                #print('pressure')
+                #print(batch_dict['p'])
+                #print('vel-y')
+                #print(batch_dict['U'][:,1])
+                #print()
                 #plotField(batch_dict, 500, 'Hello.png')
-                #tensor_div = fluid.velocityDivergence(batch_dict['U'],
-                #        batch_dict['flags'])
+                tensor_div = fluid.velocityDivergence(batch_dict['U'].clone(),
+                        batch_dict['flags'].clone())
                 pressure = batch_dict['p'].clone()
                 tensor_vel = fluid.getCentered(batch_dict['U'].clone())
                 density = batch_dict['density'].clone()
-                #img_div = torch.squeeze(tensor_div).cpu().data.numpy()
+                div = torch.squeeze(tensor_div).cpu().data.numpy()
                 np_mask = torch.squeeze(flags.eq(2)).cpu().data.numpy().astype(float)
                 rho = torch.squeeze(density).cpu().data.numpy()
                 p = torch.squeeze(pressure).cpu().data.numpy()
@@ -274,10 +282,14 @@ try:
                 #ax_div.imshow(img_div, cmap=my_map, origin='lower',
                 #        interpolation='none')
                 if real_time:
-                    ax_rho.imshow(rho[minY:maxY,minX:maxX],
+                    cax_rho.clear()
+                    cax_p.clear()
+                    cax_div.clear()
+                    im0 = ax_rho.imshow(rho[minY:maxY,minX:maxX],
                         cmap=my_map,
                         origin='lower',
                         interpolation='none')
+                    fig.colorbar(im0, cax=cax_rho, format='%.0e')
                     qx.set_UVC(img_velx[minY:maxY:skip,minX:maxX:skip],
                            img_vely[minY:maxY:skip,minX:maxX:skip])
 
@@ -293,6 +305,12 @@ try:
                         cmap=my_map,
                         origin='lower',
                         interpolation='none')
+                    fig.colorbar(im3, cax=cax_p, format='%.0e')
+                    im4 = ax_div.imshow(div[minY:maxY,minX:maxX],
+                        cmap=my_map,
+                        origin='lower',
+                        interpolation='none')
+                    fig.colorbar(im4, cax=cax_div, format='%.0e')
 
                     fig.canvas.draw()
                     #scale_units=scale_units,

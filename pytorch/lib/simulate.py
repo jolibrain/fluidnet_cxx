@@ -175,16 +175,25 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
             gravity[0] = mconf['gravityVec']['x']
             gravity[1] = mconf['gravityVec']['y']
             gravity[2] = mconf['gravityVec']['z']
-            gravity.mul_(buoyancyScale)
+            gravity.mul_(-buoyancyScale)
+            #print('before buoyancy')
+            #print(U)
             U = fluid.addBuoyancy(U, flags, density, gravity, dt)
+            #print('after buoyancy')
+            #print(U)
         if gravityScale > 0:
             gravity = torch.FloatTensor(3).fill_(0).cuda()
             gravity[0] = mconf['gravityVec']['x']
             gravity[1] = mconf['gravityVec']['y']
             gravity[2] = mconf['gravityVec']['z']
             # Add external forces: gravity.
-            gravity.mul_(gravityScale)
+            gravity.mul_(-gravityScale)
+            #print('before gravity')
+            #print(U)
             U = fluid.addGravity(U, flags, gravity, dt)
+            #print('after gravity')
+            #print(U)
+            #print()
 
     if (output_div):
         return
@@ -204,7 +213,7 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
         # No need to call it again.
         net.eval()
         data = torch.cat((p, U, flags, density), 1)
-        p, U = net(data)
+        p, U = net(data, float(dt))
 
     elif (sim_method == 'jacobi'):
         div = fluid.velocityDivergence(U, flags)
@@ -213,16 +222,20 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
         pTol = 0
         maxIter = mconf['jacobiIter']
 
-        p, residual = fluid.solveLinearSystemJacobi(flags, div, is3D, p_tol=pTol, \
+        p, residual = fluid.solveLinearSystemJacobi(dt, flags, div, is_3d=is3D, p_tol=pTol, \
                 max_iter=maxIter)
 
-        fluid.velocityUpdate(p, U, flags)
+        fluid.velocityUpdate(dt, p, U, flags)
 
     if sim_method != 'convnet':
         U = fluid.setWallBcs(U, flags)
     elif stick:
         fluid.setWallBcsStick(U, flags, flags_stick)
-
+    #print('pressure')
+    #print(p)
+    #print()
+    #print('y-velocity')
+    #print(U[:,1])
     setConstVals(batch_dict, p, U, flags, density)
     batch_dict['U'] = U
     batch_dict['density'] = density

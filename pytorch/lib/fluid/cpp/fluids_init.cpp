@@ -782,7 +782,6 @@ std::vector<T> solveLinearSystemJacobi
    float dt,
    T flags,
    T div,
-   T density,
    const bool is3D,
    const float p_tol = 1e-5,
    const int max_iter = 1000,
@@ -860,8 +859,6 @@ std::vector<T> solveLinearSystemJacobi
     cur_p->masked_fill_(maskObstacle, 0);
     mCont.masked_fill_(maskObstacle, 0);
 
-
-
     T zero_f = at::zeros_like(p); // Floating zero
     T zero_l = at::zeros_like(p).toType(at::kLong); // Long zero (for index)
     T zeroBy = at::zeros_like(p).toType(at::kByte); // Long zero (for index)
@@ -877,7 +874,7 @@ std::vector<T> solveLinearSystemJacobi
 
     T i_r = zero_l.where( (idx_x > w - 1 - bnd), idx_x + 1);
     T p2 = zero_f.
-        where(idx_x >= (w - 3 - bnd), (*cur_p_prev).index({idx_b, zero_l, idx_z, idx_y, i_r})
+        where(mCont.ne(1), (*cur_p_prev).index({idx_b, zero_l, idx_z, idx_y, i_r})
         .unsqueeze(1));
 
     T j_l = zero_l.where( (idx_y <= 0), idx_y - 1);
@@ -924,7 +921,7 @@ std::vector<T> solveLinearSystemJacobi
     p6.masked_scatter_(neighborFrontObs, pC.masked_select(neighborFrontObs));
 
     const float denom = is3D ? 6 : 4;
-    (*cur_p).masked_scatter_(mCont, ( (dt / density) *
+    (*cur_p).masked_scatter_(mCont, (dt *
                 (p1 + p2 + p3 + p4 + p5 + p6 + div) / denom).masked_select(mCont));
 
     // Currrent iteration output is now in cur_pressure

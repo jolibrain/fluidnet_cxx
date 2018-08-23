@@ -1,7 +1,5 @@
-import torch
-
-from . import CellType
 from . import getDx
+import torch
 
 # *****************************************************************************
 # addBuoyancy
@@ -45,9 +43,12 @@ def addBuoyancy(U, flags, density, gravity, dt):
     assert gravity.dim() == 1 and gravity.size(0) == 3, \
         "Gravity must be a 3D vector (even in 2D)"
 
+    TypeFluid = 1
+
     # (aalgua) I don't know why Manta divides by dx, as in all other modules
-    # dx = 1.
-    strength = -gravity * dt
+    # dx = 1. I will leave it, but the input gravity should be multiplied
+    # by getDx(flags)
+    strength = - gravity * dt
 
     i = torch.arange(0, w, dtype=torch.long, device=cuda).view(1,w).expand(bsz, d, h, w)
     j = torch.arange(0, h, dtype=torch.long, device=cuda).view(1,h,1).expand(bsz, d, h, w)
@@ -61,6 +62,7 @@ def addBuoyancy(U, flags, density, gravity, dt):
 
     idx_b = torch.arange(start=0, end=bsz, dtype=torch.long, device=cuda) \
                             .view(bsz, 1, 1, 1).expand(bsz,d,h,w)
+
 
     maskBorder = (i < bnd).__or__\
         (i > w - 1 - bnd).__or__\
@@ -76,45 +78,27 @@ def addBuoyancy(U, flags, density, gravity, dt):
     mCont = torch.ones_like(zeroBy).unsqueeze(1)
     mCont.masked_fill_(maskBorder, 0)
 
-    isFluid = flags.eq(CellType.TypeFluid).__and__(mCont)
+    isFluid = flags.eq(TypeFluid).__and__(mCont)
     mCont.masked_fill_(isFluid.ne(1), 0)
     mCont.squeeze_(1)
 
-    max_X = torch.zeros_like(zero).fill_(w-1)
-    max_Y = torch.zeros_like(zero).fill_(h-1)
-
-    i_l = zero.where( (i <= 0), i-1)
-    i_r = max_X.where( (i > w-2), i+1)
-    j_l = zero.where( (j <= 0), j-1)
-    j_r = max_Y.where( (j > h-2), j+1)
-
-    fluid100 =  flags[idx_b, zero, k, j, i_l].eq(CellType.TypeFluid).__and__ \
-                (mCont)
-               #(flags[idx_b, zero, k, j, i_r].eq(CellType.TypeFluid)).__and__ \
-
-    factor = strength[0] * (0.5*( \
-        density[idx_b, zero, k, j, i] +
-        density[idx_b, zero, k, j, i_l] ))
+    fluid100 = zeroBy.where( i <= 0, (flags[idx_b, zero, k, j, i-1].eq(TypeFluid))).__and__(mCont)
+    factor = 0.5 * strength[0] * (density.squeeze(1) + \
+        zero_f.where(i <= 0, density[idx_b, zero, k, j, i-1]) )
     U[:,0].masked_scatter_(fluid100, (U.select(1,0) + factor).masked_select(fluid100))
 
-    fluid010 =  flags[idx_b, zero, k, j_l, i].eq(CellType.TypeFluid).__and__ \
-                (mCont)
-               #(flags[idx_b, zero, k, j_r, i].eq(CellType.TypeFluid)).__and__ \
-    #fluid010 = zeroBy.where( j <= 0, (flags[idx_b, zero, k, j-1, i].eq(CellType.TypeFluid))).__and__(mCont)
-    factor = strength[1] * (0.5*( \
-        density[idx_b, zero, k, j, i] +
-        density[idx_b, zero, k, j_l, i] ))
-    #factor = strength[1] * (density.squeeze(1) - \
-    #    zero_f.where( j <= 0, density[idx_b, zero, k, j-1, i]) )
+    fluid010 = zeroBy.where( j <= 0, (flags[idx_b, zero, k, j-1, i].eq(TypeFluid))).__and__(mCont)
+    factor = 0.5 * strength[1] * (density.squeeze(1) + \
+        zero_f.where( j <= 0, density[idx_b, zero, k, j-1, i]) )
     U[:,1].masked_scatter_(fluid010, (U.select(1,1) + factor).masked_select(fluid010))
 
     if (is3D):
-        fluid001 = zeroBy.where( j <= 0, (flags[idx_b, zero, k-1, j, i].eq(CellType.TypeFluid))).__and__(mCont)
-        factor = strength[2] * (density.squeeze(1) - \
+        fluid001 = zeroBy.where( j <= 0, (flags[idx_b, zero, k-1, j, i].eq(TypeFluid))).__and__(mCont)
+        factor = 0.5 * strength[2] * (density.squeeze(1) + \
             zero_f.where(k <= 1, density[idx_b, zero, k-1, j, i]) )
         U[:,2].masked_scatter_(fluid001, (U.select(1,2) + factor).masked_select(fluid001))
 
-    return U
+
 
 # *****************************************************************************
 # addGravity
@@ -154,9 +138,14 @@ def addGravity(U, flags, gravity, dt):
     assert gravity.dim() == 1 and gravity.size(0) == 3,\
         "Gravity must be a 3D vector (even in 2D)"
 
+    TypeFluid = 1
+    TypeObstacle = 2
+    TypeEmpty = 4
+
     # (aalgua) I don't know why Manta divides by dx, as in all other modules
-    # dx = 1.
-    force = -gravity * dt
+    # dx = 1. I will leave it, but the input gravity should be multiplied
+    # by getDx(flags)
+    force = gravity * dt
 
     i = torch.arange(0, w, dtype=torch.long, device=cuda).view(1,w).expand(bsz, d, h, w)
     j = torch.arange(0, h, dtype=torch.long, device=cuda).view(1,h,1).expand(bsz, d, h, w)
@@ -184,36 +173,27 @@ def addGravity(U, flags, gravity, dt):
     mCont = torch.ones_like(zeroBy).unsqueeze(1)
     mCont.masked_fill_(maskBorder, 0)
 
-    cur_fluid = flags.eq(CellType.TypeFluid).__and__(mCont)
-    cur_empty = flags.eq(CellType.TypeEmpty).__and__(mCont)
+    cur_fluid = flags.eq(TypeFluid).__and__(mCont)
+    cur_empty = flags.eq(TypeEmpty).__and__(mCont)
 
     mNotFluidNotEmpt = cur_fluid.ne(1).__and__(cur_empty.ne(1))
     mCont.masked_fill_(mNotFluidNotEmpt, 0)
 
     mCont.squeeze_(1)
-    #print()
-    #print('F = ')
-    #print(force)
 
-    #print('before')
-    #print(U)
-    #print(U.size())
-    fluid100 = (zeroBy.where( i <= 0, (flags[idx_b, zero, k, j, i-1].eq(CellType.TypeFluid))) \
-    .__or__(( zeroBy.where( i <= 0, (flags[idx_b, zero, k, j, i-1].eq(CellType.TypeEmpty)))) \
+    fluid100 = (zeroBy.where( i <= 0, (flags[idx_b, zero, k, j, i-1].eq(TypeFluid))) \
+    .__or__(( zeroBy.where( i <= 0, (flags[idx_b, zero, k, j, i-1].eq(TypeEmpty)))) \
     .__and__(cur_fluid.squeeze(1)))).__and__(mCont)
-    U[:,0].masked_scatter_(fluid100, (U[:,0] + force[0]).masked_select(fluid100))
+    U[:,0].masked_scatter_(fluid100, (U.select(1,0) + force[0]).masked_select(fluid100))
 
-    fluid010 = (zeroBy.where( j <= 0, (flags[idx_b, zero, k, j-1, i].eq(CellType.TypeFluid))) \
-    .__or__(( zeroBy.where( j <= 0, (flags[idx_b, zero, k, j-1, i].eq(CellType.TypeEmpty)))) \
+    fluid010 = (zeroBy.where( j <= 0, (flags[idx_b, zero, k, j-1, i].eq(TypeFluid))) \
+    .__or__(( zeroBy.where( j <= 0, (flags[idx_b, zero, k, j-1, i].eq(TypeEmpty)))) \
     .__and__(cur_fluid.squeeze(1))) ).__and__(mCont)
-    U[:,1].masked_scatter_(fluid010, (U[:,1] + force[1]).masked_select(fluid010))
+    U[:,1].masked_scatter_(fluid010, (U.select(1,1) + force[1]).masked_select(fluid010))
 
     if (is3D):
-        fluid001 = (zeroBy.where( k <= 0, (flags[idx_b, zero, k-1, j, i].eq(CellType.TypeFluid))) \
-        .__or__(( zeroBy.where( k <= 0, (flags[idx_b, zero, k-1, j, i].eq(CellType.TypeEmpty)))) \
+        fluid001 = (zeroBy.where( k <= 0, (flags[idx_b, zero, k-1, j, i].eq(TypeFluid))) \
+        .__or__(( zeroBy.where( k <= 0, (flags[idx_b, zero, k-1, j, i].eq(TypeEmpty)))) \
         .__and__(cur_fluid.squeeze(1)))).__and__(mCont)
-        U[:,2].masked_scatter_(fluid001, (U[:,2] + force[2]).masked_select(fluid001))
-    #print('after')
-    #print(U)
-    #print(U.size())
-    return U
+        U[:,2].masked_scatter_(fluid001, (U.select(1,2) + force[2]).masked_select(fluid001))
+

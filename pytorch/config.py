@@ -7,7 +7,7 @@ defaultConf = {
     'freqToFile' : 5, # Frequency for loss output to file
    # 'loadModel' : False,  # set to True when resuming training or evaluating
     'maxEpochs' : 400,
-    'modelDir' : 'data2/model_1L2div_6LTdiv_01L2p_BC', # Folder where the model, the losses and
+    'modelDir' : 'data2/model_divL2_6divLT_01dt', # Folder where the model, the losses and
                                            # the conf and mconf files are saved
     'modelFilename' : 'convModel',  # Output model file name
     'modelParam' : {
@@ -17,7 +17,7 @@ defaultConf = {
             'UDiv': False,
         },
         # Set to 0 to de-activate corresponding loss.
-        'pL2Lambda' : 0.1,
+        'pL2Lambda' : 0,
         'divL2Lambda' : 1,
         'pL1Lambda' : 0,
         'divL1Lambda' : 0,

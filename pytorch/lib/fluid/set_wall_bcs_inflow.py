@@ -48,24 +48,20 @@ def setWallBcs(U, flags):
     # The neighbour to the left (i-1,j,k) is an obstacle
     # Set u.n = u_solid.n (slip bc) (direction i)
     i_l = zero.where( (i <=0), i - 1)
-    #obst100 = zeroBy.where( i <= 0, (flags[idx_b, zero, k, j, i_l].eq(TypeObstacle))).__and__(mCont)
-    obst100 = flags[idx_b, zero, k, j, i_l].eq(TypeObstacle).__and__(mCont)
+    obst100 = zeroBy.where( i <= 0, (flags[idx_b, zero, k, j, i_l].eq(TypeObstacle))).__and__(mCont)
     U[:,0].masked_fill_(obst100, 0)
 
     # Current cell is an obstacle.
     # The neighbour to the left (i-1,j,k) is fluid.
     # Set u.n = u_solid.n (slip bc) (direction i)
-    #obs_fluid100 = zeroBy.where( i <= 0, (flags[idx_b, zero, k, j, i_l].eq(TypeFluid))). \
-    obs_fluid100 = (flags[idx_b, zero, k, j, i_l].eq(TypeFluid)). \
+    obs_fluid100 = zeroBy.where( i <= 0, (flags[idx_b, zero, k, j, i_l].eq(TypeFluid))). \
      __and__(cur_obs).__and__(mCont)
     U[:,0].masked_fill_(obs_fluid100, 0)
 
     j_l = zero.where( (j <= 0), j - 1)
-    #obst010 = zeroBy.where( j <= 0, (flags[idx_b, zero, k, j_l, i].eq(TypeObstacle))).__and__(mCont)
-    obst010 = (flags[idx_b, zero, k, j_l, i].eq(TypeObstacle)).__and__(mCont)
+    obst010 = zeroBy.where( j <= 0, (flags[idx_b, zero, k, j_l, i].eq(TypeObstacle))).__and__(mCont)
     U[:,1].masked_fill_(obst010, 0)
-    #obs_fluid010 = zeroBy.where( j <= 0, (flags[idx_b, zero, k, j_l, i].eq(TypeFluid))).\
-    obs_fluid010 = (flags[idx_b, zero, k, j_l, i].eq(TypeFluid)).\
+    obs_fluid010 = zeroBy.where( j <= 0, (flags[idx_b, zero, k, j_l, i].eq(TypeFluid))).\
      __and__(cur_obs).__and__(mCont)
     U[:,1].masked_fill_(obs_fluid010, 0)
 
@@ -79,4 +75,3 @@ def setWallBcs(U, flags):
         _and__(cur_obs).__and__(mCont)
         U[:,2].masked_fill_(obs_fluid001, 0)
 
-    return U

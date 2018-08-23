@@ -148,7 +148,7 @@ try:
         div_l1_total_loss = 0
         div_lt_total_loss = 0
 
-        n_batches = 0 # Number processed
+        n_batches = 0 # Number of processed batches
 
         # Loss types
         _pL2Loss = nn.MSELoss()
@@ -187,8 +187,9 @@ try:
             #       density    |    3      |    4
 
             # Run the model forward
+            base_dt = mconf['dt']
             flags = data[:,3].unsqueeze(1).contiguous()
-            out_p, out_U = net(data)
+            out_p, out_U = net(data, float(base_dt))
 
             # Calculate targets
             target_p = target[:,0].unsqueeze(1)
@@ -203,16 +204,13 @@ try:
 
             loss_size =  pL2Loss + divL2Loss + pL1Loss + divL1Loss
 
-
             # We calculate the divergence of a future frame.
             if (divLTLambda > 0):
-                base_dt = mconf['dt']
 
                 if mconf['timeScaleSigma'] > 0:
                     scale_dt = 0.2028 + torch.abs(torch.randn(1))[0] * \
                             mconf['timeScaleSigma']
                     mconf['dt'] = base_dt * scale_dt
-
 
                 num_future_steps = mconf['longTermDivNumSteps'][0]
                 if torch.rand(1)[0] > mconf['longTermDivProbability']:
@@ -237,7 +235,7 @@ try:
 
                 mconf['dt'] = base_dt
 
-                out_p_LT, out_U_LT = net(data_lt)
+                out_p_LT, out_U_LT = net(data_lt, base_dt)
                 out_div_LT = fluid.velocityDivergence(out_U_LT.contiguous(), flags)
                 target_div_LT = torch.zeros_like(out_div)
                 divLTLoss = divLTLambda *_divLTLoss(out_div_LT, target_div_LT)

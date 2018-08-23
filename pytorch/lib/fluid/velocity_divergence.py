@@ -44,10 +44,10 @@ def velocityDivergence(U, flags):
 
     # Remove the borders in x, y and z and build the i+1, j+1, k+1 tensor
     if (not is_3d):
-        Uijk = U.narrow(x, 1, w-2).narrow(y, 1, h-2)
+        Uijk = U.narrow(x, 0, w-1).narrow(y, 0, h-1)
         Uijk_p = Uijk.clone()
-        Uijk_p[:,0] = U.narrow(x, 2, w-2).narrow(y, 1, h-2).select(1,0)
-        Uijk_p[:,1] = U.narrow(x, 1, w-2).narrow(y, 2, h-2).select(1,1)
+        Uijk_p[:,0] = U.narrow(x, 1, w-1).narrow(y, 0, h-1).select(1,0)
+        Uijk_p[:,1] = U.narrow(x, 0, w-1).narrow(y, 1, h-1).select(1,1)
     else:
         Uijk = U.narrow(x, 1, w-2).narrow(y, 1, h-2).narrow(z, 1, d-2)
         Uijk_p = Uijk.clone()
@@ -64,7 +64,10 @@ def velocityDivergence(U, flags):
     if (is_3d):
         div += Uijk.select(1,2) - Uijk_p.select(1,2)
     if (not is_3d):
-        UDiv[:,:,:,1:(h-1),1:(w-1)] = div.view(bsz, 1, d, h-2, w-2)
+
+        print(div.size())
+        print(UDiv.size())
+        UDiv[:,:,:,0:(h-1),0:(w-1)] = div.view(bsz, 1, d, h-1, w-1)
     else:
         UDiv[:,:,1:(d-1),1:(h-1),1:(w-1)] = div.view(bsz, 1, d-2, h-2, w-2)
 
