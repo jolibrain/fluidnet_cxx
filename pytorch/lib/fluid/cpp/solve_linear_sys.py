@@ -36,6 +36,7 @@ def solveLinearSystemJacobi(dt, flags, div, is_3d=False, p_tol=1e-5, max_iter=10
 
     p, p_tol = fluidnet_cpp.solve_linear_system(dt, flags, div, is_3d, \
             p_tol, max_iter, verbose)
+
     return p, p_tol
 
 

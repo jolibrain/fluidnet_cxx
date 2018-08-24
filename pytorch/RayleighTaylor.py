@@ -65,8 +65,9 @@ def createRayleighTaylorBCs(batch_dict, mconf, rho1, rho2):
     #density = ((1-A) * torch.tanh(100*(coord[:,1]/resY - (0.85 - \
     #                0.05*torch.cos(math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
     A = (rho2 - rho1) / (rho2 + rho1)
-    density = 0.5*(rho2 + rho2*torch.tanh(100*(coord[:,1]/resY - (0.5 - \
-                    0.005*torch.cos(math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
+    print('Atwood number : ' + str(A))
+    density = 0.5*(rho2+rho1 + (rho2-rho1)*torch.tanh(100*(coord[:,1]/resY - (0.5 - \
+                    0.05*torch.cos(math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
 
     #TopWall = (Y > (flags.size(3) - 2)).__and__(X > 0).__and__(X < flags.size(4) - 1)
     #flags.masked_fill_(TopWall, fluid.CellType.TypeEmpty)
@@ -178,16 +179,16 @@ try:
             it = restart_dict['it']
             print('Restarting at it = ' + str(it))
 
-        mconf['maccormackStrength'] = 0.6
-        mconf['buoyancyScale'] = 0.1#0.2#0.1#9.81/resY
-        mconf['gravityScale'] = 0.#0.1#2.0/resY
-        mconf['viscosity'] = 0
+        mconf['maccormackStrength'] = 0.2
+        mconf['buoyancyScale'] = 0.01#0.2#0.1#9.81/resY
+        mconf['gravityScale'] = 0.00#0.1#2.0/resY
+        mconf['viscosity'] = 0.01
         mconf['dt'] = 1.0
         mconf['jacobiIter'] = 50
 
         mconf['gravityVec'] = {'x': 0, 'y': -1, 'z': 0}
         max_iter = 10000
-        outIter = 2
+        outIter = 10
 
         net = model_saved.FluidNet(mconf, dropout=False)
         if torch.cuda.is_available():
@@ -197,8 +198,8 @@ try:
         my_map = cm.jet
         my_map.set_bad('gray')
 
-        skip = 10
-        scale = 0.1
+        skip = 20
+        scale = 0.6
         scale_units = 'xy'
         angles = 'xy'
         headwidth = 0.8#2.5
@@ -215,7 +216,7 @@ try:
         X, Y = np.linspace(0, resX-1, num=resX),\
                 np.linspace(0, resY-1, num=resY)
 
-        createRayleighTaylorBCs(batch_dict, mconf, rho1=0.0, rho2=0.1)
+        createRayleighTaylorBCs(batch_dict, mconf, rho1=0.9, rho2=1.1)
         tensor_vel = batch_dict['U'].clone()
         u1 = (torch.zeros_like(torch.squeeze(tensor_vel[:,0]))).cpu().data.numpy()
         v1 = (torch.zeros_like(torch.squeeze(tensor_vel[:,0]))).cpu().data.numpy()
@@ -233,7 +234,9 @@ try:
             ax_rho = fig.add_subplot(gs[0], frameon=False, aspect=1)
             cax_rho = make_axes_locatable(ax_rho).append_axes("right", size="5%", pad="2%")
             ax_velx = fig.add_subplot(gs[1], frameon=False, aspect=1)
+            cax_velx = make_axes_locatable(ax_velx).append_axes("right", size="5%", pad="2%")
             ax_vely = fig.add_subplot(gs[2], frameon=False, aspect=1)
+            cax_vely = make_axes_locatable(ax_vely).append_axes("right", size="5%", pad="2%")
             ax_p = fig.add_subplot(gs[3], frameon=False, aspect=1)
             cax_p = make_axes_locatable(ax_p).append_axes("right", size="5%", pad="2%")
             ax_div = fig.add_subplot(gs[4], frameon=False, aspect=1)
@@ -241,7 +244,8 @@ try:
             qx = ax_rho.quiver(X[:maxX_win:skip], Y[:maxY_win:skip],
                 u1[minY:maxY:skip,minX:maxX:skip],
                 v1[minY:maxY:skip,minX:maxX:skip],
-                #scale_units = 'height',
+                scale_units = 'height',
+                scale=scale,
                 #headwidth=headwidth, headlength=headlength,
                 color='black')
         #ax_vely = fig.add_subplot(gs[1], frameon=False, aspect=1)
@@ -289,6 +293,8 @@ try:
                 #        interpolation='none')
                 if real_time:
                     cax_rho.clear()
+                    cax_velx.clear()
+                    cax_vely.clear()
                     cax_p.clear()
                     cax_div.clear()
                     im0 = ax_rho.imshow(rho[minY:maxY,minX:maxX],
@@ -303,10 +309,12 @@ try:
                         cmap=my_map,
                         origin='lower',
                         interpolation='none')
+                    fig.colorbar(im1, cax=cax_velx, format='%.0e')
                     im2 = ax_vely.imshow(img_vely[minY:maxY,minX:maxX],
                         cmap=my_map,
                         origin='lower',
                         interpolation='none')
+                    fig.colorbar(im2, cax=cax_vely, format='%.0e')
                     im3 = ax_p.imshow(p[minY:maxY,minX:maxX],
                         cmap=my_map,
                         origin='lower',

@@ -47,7 +47,7 @@ def addBuoyancy(U, flags, density, gravity, dt):
 
     # (aalgua) I don't know why Manta divides by dx, as in all other modules
     # dx = 1.
-    strength = -gravity * dt
+    strength = gravity * dt
 
     i = torch.arange(0, w, dtype=torch.long, device=cuda).view(1,w).expand(bsz, d, h, w)
     j = torch.arange(0, h, dtype=torch.long, device=cuda).view(1,h,1).expand(bsz, d, h, w)
@@ -88,30 +88,32 @@ def addBuoyancy(U, flags, density, gravity, dt):
     j_l = zero.where( (j <= 0), j-1)
     j_r = max_Y.where( (j > h-2), j+1)
 
+    rho_star = 1.0
+
     fluid100 =  flags[idx_b, zero, k, j, i_l].eq(CellType.TypeFluid).__and__ \
                 (mCont)
                #(flags[idx_b, zero, k, j, i_r].eq(CellType.TypeFluid)).__and__ \
 
-    factor = strength[0] * (0.5*( \
-        density[idx_b, zero, k, j, i] +
-        density[idx_b, zero, k, j, i_l] ))
+    factor = strength[0] * ((0.5* \
+        (density[idx_b, zero, k, j, i] +
+        density[idx_b, zero, k, j, i_l] ) - rho_star))
     U[:,0].masked_scatter_(fluid100, (U.select(1,0) + factor).masked_select(fluid100))
 
     fluid010 =  flags[idx_b, zero, k, j_l, i].eq(CellType.TypeFluid).__and__ \
                 (mCont)
                #(flags[idx_b, zero, k, j_r, i].eq(CellType.TypeFluid)).__and__ \
     #fluid010 = zeroBy.where( j <= 0, (flags[idx_b, zero, k, j-1, i].eq(CellType.TypeFluid))).__and__(mCont)
-    factor = strength[1] * (0.5*( \
-        density[idx_b, zero, k, j, i] +
-        density[idx_b, zero, k, j_l, i] ))
+    factor = strength[1] * ((0.5* \
+        (density[idx_b, zero, k, j, i] +
+        density[idx_b, zero, k, j_l, i] ) - rho_star))
     #factor = strength[1] * (density.squeeze(1) - \
     #    zero_f.where( j <= 0, density[idx_b, zero, k, j-1, i]) )
     U[:,1].masked_scatter_(fluid010, (U.select(1,1) + factor).masked_select(fluid010))
 
     if (is3D):
         fluid001 = zeroBy.where( j <= 0, (flags[idx_b, zero, k-1, j, i].eq(CellType.TypeFluid))).__and__(mCont)
-        factor = strength[2] * (density.squeeze(1) - \
-            zero_f.where(k <= 1, density[idx_b, zero, k-1, j, i]) )
+        factor = strength[2] *(0.5* (density.squeeze(1) + \
+            zero_f.where(k <= 1, density[idx_b, zero, k-1, j, i]) ))
         U[:,2].masked_scatter_(fluid001, (U.select(1,2) + factor).masked_select(fluid001))
 
     return U
@@ -156,7 +158,7 @@ def addGravity(U, flags, gravity, dt):
 
     # (aalgua) I don't know why Manta divides by dx, as in all other modules
     # dx = 1.
-    force = -gravity * dt
+    force = gravity * dt
 
     i = torch.arange(0, w, dtype=torch.long, device=cuda).view(1,w).expand(bsz, d, h, w)
     j = torch.arange(0, h, dtype=torch.long, device=cuda).view(1,h,1).expand(bsz, d, h, w)

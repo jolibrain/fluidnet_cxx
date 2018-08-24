@@ -176,7 +176,7 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
             gravity[0] = mconf['gravityVec']['x']
             gravity[1] = mconf['gravityVec']['y']
             gravity[2] = mconf['gravityVec']['z']
-            gravity.mul_(-buoyancyScale)
+            gravity.mul_(buoyancyScale)
             U = fluid.addBuoyancy(U, flags, density, gravity, dt)
         if gravityScale > 0:
             gravity = torch.FloatTensor(3).fill_(0).cuda()
