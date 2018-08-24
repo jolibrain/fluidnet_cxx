@@ -189,7 +189,7 @@ try:
             # Run the model forward
             base_dt = mconf['dt']
             flags = data[:,3].unsqueeze(1).contiguous()
-            out_p, out_U = net(data, float(base_dt))
+            out_p, out_U = net(data, base_dt)
 
             # Calculate targets
             target_p = target[:,0].unsqueeze(1)

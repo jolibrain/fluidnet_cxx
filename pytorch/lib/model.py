@@ -77,6 +77,8 @@ class FluidNet(nn.Module):
 
     def forward(self, input_, dt):
 
+        dt = float(dt)
+
         # data indexes     |           |
         #       (dim 1)    |    2D     |    3D
         # ----------------------------------------

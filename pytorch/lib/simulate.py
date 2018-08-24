@@ -121,7 +121,7 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
     assert sim_method == 'convnet' or sim_method == 'jacobi', 'Simulation method \
                 not supported. Choose either convnet or jacobi.'
 
-    dt = mconf['dt']
+    dt = float(mconf['dt'])
     maccormackStrength = mconf['maccormackStrength']
     sampleOutsideFluid = mconf['sampleOutsideFluid']
 
@@ -204,7 +204,7 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
         # No need to call it again.
         net.eval()
         data = torch.cat((p, U, flags, density), 1)
-        p, U = net(data, float(dt))
+        p, U = net(data, dt)
 
     elif (sim_method == 'jacobi'):
         div = fluid.velocityDivergence(U, flags)
