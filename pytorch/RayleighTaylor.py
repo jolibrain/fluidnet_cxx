@@ -68,14 +68,19 @@ def createRayleighTaylorBCs(batch_dict, mconf, rho1, rho2):
     density = 0.5*(rho2 + rho2*torch.tanh(100*(coord[:,1]/resY - (0.5 - \
                     0.005*torch.cos(math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
 
+    #TopWall = (Y > (flags.size(3) - 2)).__and__(X > 0).__and__(X < flags.size(4) - 1)
+    #flags.masked_fill_(TopWall, fluid.CellType.TypeEmpty)
     print('density')
     print(density)
+    print('flags')
+    print(flags)
     #upper_mask = ((Y/resY) >= (0.5 + 0.01 * \
     #    torch.cos(math.pi*(X/resX))))
     #lower_mask = upper_mask.eq(0)
     #density.masked_fill_(upper_mask, rho2)
     #density.masked_fill_(lower_mask, rho1)
     batch_dict['density'] = density
+    batch_dict['flags'] = flags
     #Initialize pressure to hydrostatic:
     # p = 0 on top
     # p = P0 - rho*g*y
@@ -146,8 +151,8 @@ try:
         # Create model and print layers and params
         cuda = torch.device('cuda')
 
-        resX = 10#6000
-        resY = 40#800
+        resX = 100#6000
+        resY = 200#800
 
         p =       torch.zeros((1,1,1,resY,resX), dtype=torch.float).cuda()
         U =       torch.zeros((1,2,1,resY,resX), dtype=torch.float).cuda()
@@ -174,15 +179,15 @@ try:
             print('Restarting at it = ' + str(it))
 
         mconf['maccormackStrength'] = 0.6
-        mconf['buoyancyScale'] = 1.#0.2#0.1#9.81/resY
+        mconf['buoyancyScale'] = 0.1#0.2#0.1#9.81/resY
         mconf['gravityScale'] = 0.#0.1#2.0/resY
         mconf['viscosity'] = 0
         mconf['dt'] = 1.0
         mconf['jacobiIter'] = 50
 
         mconf['gravityVec'] = {'x': 0, 'y': -1, 'z': 0}
-        max_iter = 1000
-        outIter = 10
+        max_iter = 10000
+        outIter = 2
 
         net = model_saved.FluidNet(mconf, dropout=False)
         if torch.cuda.is_available():
@@ -199,7 +204,7 @@ try:
         headwidth = 0.8#2.5
         headlength = 5#2
 
-        torch.set_printoptions(precision=1, edgeitems = 5)
+        torch.set_printoptions(precision=3, edgeitems = 5)
 
         minY = 0
         maxY = resY
@@ -251,6 +256,7 @@ try:
                 #print(batch_dict['U'][:,1])
                 #print()
                 #plotField(batch_dict, 500, 'Hello.png')
+                #tensor_div = torch.zeros_like(flags)
                 tensor_div = fluid.velocityDivergence(batch_dict['U'].clone(),
                         batch_dict['flags'].clone())
                 pressure = batch_dict['p'].clone()

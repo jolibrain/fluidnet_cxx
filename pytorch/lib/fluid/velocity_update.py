@@ -47,31 +47,39 @@ def velocityUpdate(dt, pressure, U, flags):
 
     if not is3D:
         # Current cell is fluid
-        mask_fluid = flags.narrow(4, 1, w-1).narrow(3, 1, h-1).eq(CellType.TypeFluid)
+        mask_fluid = flags.narrow(4, 1, w-2).narrow(3, 1, h-2).eq(CellType.TypeFluid)
         # Current is fluid and neighbour to left or down are fluid
         mask_fluid_i = mask_fluid.__and__ \
-            (flags.narrow(4, 0, w-1).narrow(3, 1, h-1).eq(CellType.TypeFluid))
+            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).eq(CellType.TypeFluid))
         mask_fluid_j = mask_fluid.__and__ \
-            (flags.narrow(4, 1, w-1).narrow(3, 0, h-1).eq(CellType.TypeFluid))
+            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(CellType.TypeFluid))
         # Current cell is fluid and neighbours to left or down are empty
         mask_fluid_empty_im1 = mask_fluid.__and__ \
-            (flags.narrow(4, 0, w-1).narrow(3, 1, h-1).eq(CellType.TypeEmpty))
+            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).eq(CellType.TypeObstacle))
         mask_fluid_empty_jm1 = mask_fluid.__and__ \
-            (flags.narrow(4, 1, w-1).narrow(3, 0, h-1).eq(CellType.TypeEmpty))
-        # Current cell is empty
-        mask_empty = flags.narrow(4, 1, w-1).narrow(3, 1, h-1).eq(CellType.TypeEmpty)
+            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(CellType.TypeObstacle))
+        # Current cell is empty and not outflow
+        mask_empty = flags.narrow(4, 1, w-2).narrow(3, 1, h-2) \
+                            .eq(CellType.TypeObstacle).__and__ \
+                     (flags.narrow(4, 1, w-2).narrow(3, 1, h-2) \
+                            .ne(CellType.TypeOutflow))
         # Current cell is empty and neighbours to left or down are fluid
         mask_empty_fluid_im1 = mask_empty.__and__ \
-            (flags.narrow(4, 0, w-1).narrow(3, 1, h-1).eq(CellType.TypeFluid))
+            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).eq(CellType.TypeFluid))
         mask_empty_fluid_jm1 = mask_empty.__and__ \
-            (flags.narrow(4, 1, w-1).narrow(3, 0, h-1).eq(CellType.TypeFluid))
+            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(CellType.TypeFluid))
+        # Current cell is empty and neighbours to left or down are not fluid
+        mask_no_fluid_im1 = mask_empty.__and__ \
+            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).eq(CellType.TypeEmpty))
+        mask_no_fluid_jm1 = mask_empty.__and__ \
+            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(CellType.TypeEmpty))
 
     else:
         # TODO: implement 3D bcs well.
         # TODO: add outlfow (change in advection required)
-        mask_fluid  = flags.narrow(4, 1, w-1).narrow(3, 1, h-1).narrow(2, 1, d-2).eq(CellType.TypeFluid)
+        mask_fluid  = flags.narrow(4, 1, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).eq(CellType.TypeFluid)
         mask_fluid_i = mask_fluid.__and__ \
-            (flags.narrow(4, 0, w-1).narrow(3, 1, h-1).narrow(2, 1, d-2).eq(CellType.TypeFluid))
+            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).narrow(2, 1, d-2).eq(CellType.TypeFluid))
         mask_fluid_j = mask_fluid.__and__ \
             (flags.narrow(4, 1, w-1).narrow(3, 0, h-1).narrow(2, 1, d-2).eq(CellType.TypeFluid))
         mask_fluid_k = mask_fluid.__and__ \
@@ -87,6 +95,9 @@ def velocityUpdate(dt, pressure, U, flags):
     mask_empty_fluid_i_f = mask_empty_fluid_im1.type(U.type())
     mask_empty_fluid_j_f = mask_empty_fluid_jm1.type(U.type())
 
+    mask_no_fluid_i_f = mask_no_fluid_im1.type(U.type())
+    mask_no_fluid_j_f = mask_no_fluid_jm1.type(U.type())
+
     if is3D:
         mask_fluid_k_f = mask_fluid_k.type(U.type())
 
@@ -94,6 +105,7 @@ def velocityUpdate(dt, pressure, U, flags):
         mask_fluid = torch.cat((mask_fluid_i_f, mask_fluid_j_f), 1).contiguous()
         mask_fluid_empty = torch.cat((mask_fluid_empty_i_f, mask_fluid_empty_j_f), 1).contiguous()
         mask_empty_fluid = torch.cat((mask_empty_fluid_i_f, mask_empty_fluid_j_f), 1).contiguous()
+        mask_no_fluid = torch.cat((mask_no_fluid_i_f, mask_no_fluid_j_f), 1).contiguous()
     else:
         mask_fluid = torch.cat((mask_fluid_i_f, mask_fluid_j_f, mask_fluid_k_f), 1).contiguous()
 
@@ -104,11 +116,11 @@ def velocityUpdate(dt, pressure, U, flags):
               #          chan 2: (i, j, k-1)
 
     if not is3D:
-        Pijk = pressure.narrow(4, 1, w-1).narrow(3, 1, h-1)
-        Pijk = Pijk.clone().expand(b, 2, d, h-1, w-1)
-        Pijk_m = Pijk.clone().expand(b, 2, d, h-1, w-1)
-        Pijk_m[:,0] = pressure.narrow(4, 0, w-1).narrow(3, 1, h-1).squeeze(1)
-        Pijk_m[:,1] = pressure.narrow(4, 1, w-1).narrow(3, 0, h-1).squeeze(1)
+        Pijk = pressure.narrow(4, 1, w-2).narrow(3, 1, h-2)
+        Pijk = Pijk.clone().expand(b, 2, d, h-2, w-2)
+        Pijk_m = Pijk.clone().expand(b, 2, d, h-2, w-2)
+        Pijk_m[:,0] = pressure.narrow(4, 0, w-2).narrow(3, 1, h-2).squeeze(1)
+        Pijk_m[:,1] = pressure.narrow(4, 1, w-2).narrow(3, 0, h-2).squeeze(1)
     else:
         Pijk = pressure.narrow(4, 1, w-1).narrow(3, 1, h-1).narrow(2, 1, d-2)
         Pijk = Pijk.clone().expand(b, 3, d-2, h-1, w-1)
@@ -128,20 +140,14 @@ def velocityUpdate(dt, pressure, U, flags):
         # u = u - p(i,j)
         # 3) Cell is empty and left neighbour is fluid
         # u = u + p(i-1,j)
-        print('w = ' + str(w))
-        print('h = ' + str(h))
-        print('mask_fluid_obs')
-        print(mask_fluid_empty)
-        print('mask_obs_fluid')
-        print(mask_empty_fluid)
 
-
-        U[:,:,:,1:h,1:w] = dt*  (mask_fluid * \
-            (U.narrow(4, 1, w-1).narrow(3, 1, h-1) - (Pijk - Pijk_m)) + \
+        U[:,:,:,1:(h-1),1:(w-1)] = dt*  (mask_fluid * \
+            (U.narrow(4, 1, w-2).narrow(3, 1, h-2) - (Pijk - Pijk_m)) + \
              mask_fluid_empty * \
-            (U.narrow(4, 1, w-1).narrow(3, 1, h-1) - Pijk) + \
+            (U.narrow(4, 1, w-2).narrow(3, 1, h-2) - Pijk) + \
             mask_empty_fluid * \
-            (U.narrow(4, 1, w-1).narrow(3, 1, h-1) + Pijk_m))
+            (U.narrow(4, 1, w-2).narrow(3, 1, h-2) + Pijk_m) + \
+            mask_no_fluid * (0))
     else:
         U[:,:,1:(d-1),1:(h-1),1:(w-1)] =  mask * \
             (U.narrow(4, 1, w-1).narrow(3, 1, h-1).narrow(2, 1, d-2) - (Pijk - Pijk_m))

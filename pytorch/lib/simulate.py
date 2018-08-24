@@ -134,6 +134,7 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
     # Get p, U, flags and density from batch.
     p = batch_dict['p']
     U = batch_dict['U']
+
     flags = batch_dict['flags']
     stick = False
     if 'flags_stick' in batch_dict:
@@ -176,11 +177,7 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
             gravity[1] = mconf['gravityVec']['y']
             gravity[2] = mconf['gravityVec']['z']
             gravity.mul_(-buoyancyScale)
-            #print('before buoyancy')
-            #print(U)
             U = fluid.addBuoyancy(U, flags, density, gravity, dt)
-            #print('after buoyancy')
-            #print(U)
         if gravityScale > 0:
             gravity = torch.FloatTensor(3).fill_(0).cuda()
             gravity[0] = mconf['gravityVec']['x']
@@ -188,17 +185,11 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
             gravity[2] = mconf['gravityVec']['z']
             # Add external forces: gravity.
             gravity.mul_(-gravityScale)
-            #print('before gravity')
-            #print(U)
             U = fluid.addGravity(U, flags, gravity, dt)
-            #print('after gravity')
-            #print(U)
-            #print()
 
     if (output_div):
         return
 
-    #if (sim_method != 'convnet'):
     if sim_method != 'convnet':
         U = fluid.setWallBcs(U, flags)
     elif stick:
@@ -231,11 +222,7 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
         U = fluid.setWallBcs(U, flags)
     elif stick:
         fluid.setWallBcsStick(U, flags, flags_stick)
-    #print('pressure')
-    #print(p)
-    #print()
-    #print('y-velocity')
-    #print(U[:,1])
+
     setConstVals(batch_dict, p, U, flags, density)
     batch_dict['U'] = U
     batch_dict['density'] = density
