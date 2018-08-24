@@ -126,6 +126,8 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
     sampleOutsideFluid = mconf['sampleOutsideFluid']
 
     buoyancyScale = mconf['buoyancyScale']
+    buoyancyTempScale = mconf['buoyancyTemperatureScale']
+    kt = mconf['kt']
     gravityScale = mconf['gravityScale']
 
     viscosity = mconf['viscosity']
@@ -149,11 +151,16 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
     if 'density' in batch_dict:
         density = batch_dict['density']
 
+        if buoyancyScale > 0 or gravityScale > 0:
+            quantity = 'density'
+        elif buoyancyTempScale > 0:
+            quantity = 'temperature'
+
         # First advect all scalar fields.
         density = fluid.advectScalar(dt, density, U, flags, \
                 method="maccormackFluidNet", \
-                boundary_width=1, sample_outside_fluid=sampleOutsideFluid, \
-                maccormack_strength=maccormackStrength)
+                boundary_width=1, quantity=quantity, \
+                maccormack_strength=maccormackStrength, kt=kt)
     else:
         density = torch.zeros_like(flags)
 
@@ -177,15 +184,23 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
             gravity[1] = mconf['gravityVec']['y']
             gravity[2] = mconf['gravityVec']['z']
             gravity.mul_(buoyancyScale)
-            U = fluid.addBuoyancy(U, flags, density, gravity, dt)
+            U = fluid.addDensityBuoyancy(U, flags, density, gravity, dt)
         if gravityScale > 0:
+            # Add external forces: gravity.
             gravity = torch.FloatTensor(3).fill_(0).cuda()
             gravity[0] = mconf['gravityVec']['x']
             gravity[1] = mconf['gravityVec']['y']
             gravity[2] = mconf['gravityVec']['z']
-            # Add external forces: gravity.
             gravity.mul_(-gravityScale)
             U = fluid.addGravity(U, flags, gravity, dt)
+        if buoyancyTempScale > 0:
+            # Add external forces: buoyancy.
+            gravity = torch.FloatTensor(3).fill_(0).cuda()
+            gravity[0] = mconf['gravityVec']['x']
+            gravity[1] = mconf['gravityVec']['y']
+            gravity[2] = mconf['gravityVec']['z']
+            gravity.mul_(buoyancyTempScale)
+            U = fluid.addTemperatureBuoyancy(U, flags, density, gravity, dt)
 
     if (output_div):
         return

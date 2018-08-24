@@ -5,7 +5,7 @@ from .set_wall_bcs_stick import setWallBcsStick
 from .flags_to_occupancy import flagsToOccupancy
 from .velocity_divergence import velocityDivergence
 from .velocity_update import velocityUpdate
-from .source_terms import addBuoyancy, addGravity
+from .source_terms import addTemperatureBuoyancy, addDensityBuoyancy, addGravity
 from .viscosity import addViscosity
 from .util import emptyDomain
 from .cpp.advection import advectScalar, advectVelocity

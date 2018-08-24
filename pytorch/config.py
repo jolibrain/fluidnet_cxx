@@ -24,6 +24,7 @@ defaultConf = {
         'divLongTermLambda' : 6,
         'dt' : 0.1,
         'buoyancyScale' : 0,
+        'buoyancyTemperatureScale' : 0,
         'gravityScale' : 0,
         'viscosity': 0,
         'model' : 'FluidNet', # 'FluidNet' for our own net, based on FluidNet article.
