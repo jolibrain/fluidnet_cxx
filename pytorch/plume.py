@@ -13,6 +13,9 @@ if 'DISPLAY' not in os.environ:
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.cm as cm
+from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
+from mpl_toolkits.axes_grid1.colorbar import colorbar
+
 import numpy as np
 import numpy.ma as ma
 
@@ -28,30 +31,25 @@ from config import defaultConf
 
 # Use: python3 print_output.py <folder_with_model> <modelName>
 # e.g: python3 print_output.py data/model_test convModel
-#
-# Utility to print data, output or target fields, as well as errors.
-# It loads the state and runs one epoch with a batch size = 1. It can be used while
-# training, to have some visual help.
 
 #**************************** Load command line arguments *********************
 assert (len(sys.argv) == 3), 'Usage: python3 print_output.py <modelDir> <modelName>'
 assert (glob.os.path.exists(sys.argv[1])), 'Directory ' + str(sys.argv[1]) + ' does not exists'
 
-def createCylinderBCs(batch_dict, inlet_vel, resX, resY, centerX, centerY, radCylinder):
-    #Create cylinder 2D of diameter 50
 
+def createPlumeBCs(batch_dict, density_val, u_scale, rad):
+
+    cuda = torch.device('cuda')
     # batch_dict at input: {p, UDiv, flags, density}
-
-    assert len(batch_dict) == 4, "Batch must contain 3 tensors (p, UDiv, flags, flags_stick)"
-    batch_dict['cylinder'] = True
-    assert inlet_vel.dim() == 1
+    assert len(batch_dict) == 4, "Batch must contain 4 tensors (p, UDiv, flags, density)"
     UDiv = batch_dict['U']
-    #density = batch_dict['density']
+    density = batch_dict['density']
     UBC = UDiv.clone().fill_(0)
+    UBCInvMask = UDiv.clone().fill_(1)
 
     # Single density value
-    #densityBC = density.clone().fill_(0)
-    #densityBCInvMask = density.clone().fill_(1)
+    densityBC = density.clone().fill_(0)
+    densityBCInvMask = density.clone().fill_(1)
 
     assert UBC.dim() == 5, 'UBC must have 5 dimensions'
     assert UBC.size(0) == 1, 'Only single batches allowed (inference)'
@@ -62,43 +60,59 @@ def createCylinderBCs(batch_dict, inlet_vel, resX, resY, centerX, centerY, radCy
     is3D = (UBC.size(1) == 3)
     if not is3D:
         assert zdim == 1, 'For 2D, zdim must be 1'
+    centerX = xdim // 2
+    centerZ = max( zdim // 2, 1.0)
+    plumeRad = math.floor(xdim*rad)
 
-    # Create the cylinder
-    X = torch.arange(0, resX, device=cuda).view(resX).expand((1,resY,resX))
-    Y = torch.arange(0, resY, device=cuda).view(resY, 1).expand((1,resY,resX))
+    y = 1
+    if (not is3D):
+        vec = torch.arange(0,2, device=cuda)
+    else:
+        vec = torch.arange(0,3, device=cuda)
+        vec[2] = 0
 
-    dist_from_center = (X - centerX).pow(2) + (Y-centerY).pow(2)
-    mask_cylinder = dist_from_center <= radCylinder * radCylinder
+    vec.mul_(u_scale)
 
-    flags = batch_dict['flags']
-    flags_stick = batch_dict['flags_stick']
-    flags = flags.masked_fill_(mask_cylinder, 2)
-    flags_stick = flags.clone().masked_fill_(mask_cylinder, 128)
-    batch_dict['flags'] = flags
-    batch_dict['flags_stick'] = flags_stick
+    index_x = torch.arange(0, xdim, device=cuda).view(xdim).expand_as(density[0][0])
+    index_y = torch.arange(0, ydim, device=cuda).view(ydim, 1).expand_as(density[0][0])
+    if (is3D):
+        index_z = torch.arange(0, zdim, device=cuda).view(zdim, 1, 1).expand_as(density[0][0])
 
-    maskInlet = (X < 3).__and__(Y > 0).__and__(Y < (resY-1))
-    #flags = flags.masked_fill_(maskInlet, 1)
+    if (not is3D):
+        index_ten = torch.stack((index_x, index_y), dim=0)
+    else:
+        index_ten = torch.stack((index_x, index_y, index_z), dim=0)
 
-    # Create the inlet
-    UBC = maskInlet.float() * inlet_vel.cuda().view(1,2,1,1,1)
-            #maskSlipWalls.float() * inlet_vel.cuda().view(1,2,1,1,1)
+    #TODO 3d implementation
+    indx_circle = index_ten[:,:,0:4]
+    indx_circle[0] -= centerX
+    maskInside = (indx_circle[0].pow(2) <= plumeRad*plumeRad)
 
-    # Initial conditions
-    UDiv = inlet_vel.cuda().view(1,2,1,1,1).expand_as(UDiv)
+    # Inside the plume. Set the BCs.
 
-    #densityBC[:,:,:,0:4].masked_fill_(maskInside, density_val)
-    #densityBCInvMask[:,:,:,0:4].masked_fill_(maskInside, 0)
+    #It is clearer to just multiply by mask (casted into Float)
+    maskInside_f = maskInside.float().clone()
+    UBC[:,:,:,0:4] = maskInside_f * vec.view(1,2,1,1,1).expand_as(UBC[:,:,:,0:4])
+    UBCInvMask[:,:,:,0:4].masked_fill_(maskInside, 0)
+
+    densityBC[:,:,:,0:4].masked_fill_(maskInside, density_val)
+    densityBCInvMask[:,:,:,0:4].masked_fill_(maskInside, 0)
+
+    # Outside the plume. Set the velocity to zero and leave density alone.
+
+    maskOutside = (maskInside == 0)
+    UBC[:,:,:,0:4].masked_fill_(maskOutside, 0)
+    UBCInvMask[:,:,:,0:4].masked_fill_(maskOutside, 0)
 
     # Insert the new tensors in the batch_dict.
     batch_dict['UBC'] = UBC
-    batch_dict['UBCInvMask'] = (maskInlet.eq(0)).float()
-    batch_dict['U'] = UDiv.contiguous()
-    #batch_dict['densityBC'] = densityBC
-    #batch_dict['densityBCInvMask'] = densityBCInvMask
+    batch_dict['UBCInvMask'] = UBCInvMask
+    batch_dict['densityBC'] = densityBC
+    batch_dict['densityBCInvMask'] = densityBCInvMask
 
-    # batch_dict at output = {p, UDiv, flags, UBC,
-    #                         UBCMask}
+    # batch_dict at output = {p, UDiv, flags, density, UBC,
+    #                         UBCInvMask, densityBC, densityBCInvMask}
+
 
 #********************************** Define Config ******************************
 
@@ -156,61 +170,56 @@ try:
         net = model_saved.FluidNet(mconf, dropout=False)
         if torch.cuda.is_available():
             net = net.cuda()
-        #lib.summary(net, (3,1,128,128))
 
         net.load_state_dict(state['state_dict'])
 
-        res = 100
-        resX = res#6000
-        resY = res#800
+        res = 256
+        resX = res
+        resY = res
 
         p =       torch.zeros((1,1,1,resY,resX), dtype=torch.float).cuda()
         U =       torch.zeros((1,2,1,resY,resX), dtype=torch.float).cuda()
         flags =   torch.zeros((1,1,1,resY,resX), dtype=torch.float).cuda()
-        #flags_stick =   torch.zeros((1,1,1,resY,resX), dtype=torch.float).cuda()
         density = torch.zeros((1,1,1,res,res), dtype=torch.float).cuda()
 
         fluid.emptyDomain(flags)
-        #fluid.emptyDomain(flags_stick)
         batch_dict = {}
         batch_dict['p'] = p
         batch_dict['U'] = U
         batch_dict['flags'] = flags
-        #batch_dict['flags_stick'] = flags_stick
         batch_dict['density'] = density
 
-        density_val = 1
-        rad = 0.1
-        plume_scale = 1.0 * res/128
-        lib.createPlumeBCs(batch_dict, density_val, plume_scale, rad)
-        #centerX = 20#500
-        #centerY = resY // 2
-        #radCylinder = 3#80.5
-        #inlet_vel = torch.zeros(2)
-        #inlet_vel[0] = 1
-        #inlet_vel[1] = 0
-        #createCylinderBCs(batch_dict, inlet_vel,
-        #                resX, resY,
-        #                centerX, centerY, radCylinder)
-        resume = False
+        restart = False
         real_time = True
-        folder = 'data2/plume_lower_scale/'
+        save_vtk = False
+        folder = 'data2/plume_buoyant_jacobi/'
         filename_restart = folder + 'restart.pth'
         method = 'jacobi'
         it = 0
-        if resume:
+        if restart:
             restart_dict = torch.load(filename_restart)
             batch_dict = restart_dict['batch_dict']
             it = restart_dict['it']
             print('Restarting at it = ' + str(it))
 
-        mconf['buoyancyScale'] = 0.005
-        mconf['gravityScale'] = 0
-        mconf['viscosity'] = 0
+        mconf['maccormackStrength'] = 0.6
+        mconf['buoyancyScale'] = (0.5/4) * (res / 128 ) #0.0043#0.2#0.1#9.81/resY
+        mconf['gravityScale'] = 0.00#0.1#2.0/resY
+        mconf['viscosity'] = 0.0
+        mconf['operatingDensity'] = 0.0
         mconf['dt'] = 0.1
-        mconf['jacobiIter'] = 34
+        mconf['pTol'] = 0.01
+        mconf['jacobiIter'] = 500
 
-        mconf['gravityVec'] = {'x': 0, 'y': 1, 'z': 0}
+        mconf['gravityVec'] = {'x': 0, 'y': -1, 'z': 0}
+        max_iter = 20000
+        outIter = 100
+
+        rho1 = 1.0
+        rad = 0.16
+        plume_scale = 1.0 * float(res)/128
+        createPlumeBCs(batch_dict, rho1, plume_scale, rad)
+
         #fig = plt.figure(figsize=(10,6))
         #mask_np = torch.squeeze(batch_dict['U'][:,0]).cpu().data.numpy()
         #plt.imshow(mask_np[:,:200], origin='lower', interpolation='none')
@@ -218,14 +227,12 @@ try:
 
         #print(batch_dict['U'][:,0])
         #createPlumeBCs(batch_dict, density_val, plume_scale, rad)
-        max_iter = 30000
-        outIter = 25
 
         my_map = cm.jet
         my_map.set_bad('gray')
 
         skip = 10
-        scale = 0.1
+        scale = 20
         scale_units = 'xy'
         angles = 'xy'
         headwidth = 0.8#2.5
@@ -248,16 +255,27 @@ try:
 
 
         if real_time:
-            fig = plt.figure(figsize=(20,10))
-            gs = gridspec.GridSpec(1,3)
+            fig = plt.figure(figsize=(20,20))
+            gs = gridspec.GridSpec(2,3,
+                 wspace=0.5, hspace=0.2)
+
             fig.show()
             fig.canvas.draw()
-            ax_rho = fig.add_subplot(gs[0], frameon=False, aspect=1)
-            ax_velx = fig.add_subplot(gs[1], frameon=False, aspect=1)
-            ax_vely = fig.add_subplot(gs[2], frameon=False, aspect=1)
-            qx = ax_velx.quiver(X[:maxX_win:skip], Y[:maxY_win:skip],
+            ax_rho = fig.add_subplot(gs[0,0], frameon=False, aspect=1)
+            cax_rho = make_axes_locatable(ax_rho).append_axes("right", size="5%", pad="2%")
+            ax_velx = fig.add_subplot(gs[0,1], frameon=False, aspect=1)
+            cax_velx = make_axes_locatable(ax_velx).append_axes("right", size="5%", pad="2%")
+            ax_vely = fig.add_subplot(gs[0,2], frameon=False, aspect=1)
+            cax_vely = make_axes_locatable(ax_vely).append_axes("right", size="5%", pad="2%")
+            ax_p = fig.add_subplot(gs[1,0], frameon=False, aspect=1)
+            cax_p = make_axes_locatable(ax_p).append_axes("right", size="5%", pad="2%")
+            ax_div = fig.add_subplot(gs[1,1], frameon=False, aspect=1)
+            cax_div = make_axes_locatable(ax_div).append_axes("right", size="5%", pad="2%")
+            qx = ax_rho.quiver(X[:maxX_win:skip], Y[:maxY_win:skip],
                 u1[minY:maxY:skip,minX:maxX:skip],
                 v1[minY:maxY:skip,minX:maxX:skip],
+                scale_units = 'height',
+                scale=scale,
                 #headwidth=headwidth, headlength=headlength,
                 color='black')
         #ax_vely = fig.add_subplot(gs[1], frameon=False, aspect=1)
@@ -266,14 +284,15 @@ try:
             lib.simulate(conf, mconf, batch_dict, net, method)
             if (it% outIter == 0):
                 print("It = " + str(it))
-                #plotField(batch_dict, 500, 'Hello.png')
-                #tensor_div = fluid.velocityDivergence(batch_dict['U'],
-                #        batch_dict['flags'])
-                tensor_vel = fluid.getCentered(batch_dict['U'])
-                density = batch_dict['density']
-                #img_div = torch.squeeze(tensor_div).cpu().data.numpy()
+                tensor_div = fluid.velocityDivergence(batch_dict['U'].clone(),
+                        batch_dict['flags'].clone())
+                pressure = batch_dict['p'].clone()
+                tensor_vel = fluid.getCentered(batch_dict['U'].clone())
+                density = batch_dict['density'].clone()
+                div = torch.squeeze(tensor_div).cpu().data.numpy()
                 np_mask = torch.squeeze(flags.eq(2)).cpu().data.numpy().astype(float)
                 rho = torch.squeeze(density).cpu().data.numpy()
+                p = torch.squeeze(pressure).cpu().data.numpy()
                 img_norm_vel = torch.squeeze(torch.norm(tensor_vel,
                     dim=1, keepdim=True)).cpu().data.numpy()
                 img_velx = torch.squeeze(tensor_vel[:,0]).cpu().data.numpy()
@@ -291,35 +310,52 @@ try:
                 img_vely_masked = img_vely_masked.filled()
                 img_vel_norm_masked = img_vel_norm_masked.filled()
 
-                #img_zeros_x = np.zeros_like(img_velx)
-                #img_zeros_y = np.zeros_like(img_vely)
-                #ax_div.imshow(img_div, cmap=my_map, origin='lower',
-                #        interpolation='none')
                 if real_time:
-                    ax_rho.imshow(rho[minY:maxY,minX:maxX],
+                    cax_rho.clear()
+                    cax_velx.clear()
+                    cax_vely.clear()
+                    cax_p.clear()
+                    cax_div.clear()
+                    fig.suptitle("it = " + str(it), fontsize=16)
+                    im0 = ax_rho.imshow(rho[minY:maxY,minX:maxX],
                         cmap=my_map,
                         origin='lower',
                         interpolation='none')
-
-                    ax_velx.imshow(img_velx[minY:maxY,minX:maxX],
-                        cmap=my_map,
-                        origin='lower',
-                        interpolation='none')
+                    ax_rho.set_title('Density')
+                    fig.colorbar(im0, cax=cax_rho, format='%.0e')
                     qx.set_UVC(img_velx[minY:maxY:skip,minX:maxX:skip],
                            img_vely[minY:maxY:skip,minX:maxX:skip])
-                    ax_vely.imshow(img_vely[minY:maxY,minX:maxX],
+
+                    im1 = ax_velx.imshow(img_velx[minY:maxY,minX:maxX],
                         cmap=my_map,
                         origin='lower',
                         interpolation='none')
-                    fig.canvas.draw()
-                    fig.canvas.draw()
-                    #scale_units=scale_units,
-                    #angles=angles,
-                    #headwidth=headwidth, headlength=headlength,
-                    #scale=scale,
-                    #color='black')
+                    ax_velx.set_title('x-velocity')
+                    fig.colorbar(im1, cax=cax_velx, format='%.0e')
+                    im2 = ax_vely.imshow(img_vely[minY:maxY,minX:maxX],
+                        cmap=my_map,
+                        origin='lower',
+                        interpolation='none')
+                    ax_vely.set_title('y-velocity')
+                    fig.colorbar(im2, cax=cax_vely, format='%.0e')
+                    im3 = ax_p.imshow(p[minY:maxY,minX:maxX],
+                        cmap=my_map,
+                        origin='lower',
+                        interpolation='none')
+                    ax_p.set_title('pressure')
+                    fig.colorbar(im3, cax=cax_p, format='%.0e')
+                    im4 = ax_div.imshow(div[minY:maxY,minX:maxX],
+                        cmap=my_map,
+                        origin='lower',
+                        interpolation='none')
+                    ax_div.set_title('divergence')
+                    fig.colorbar(im4, cax=cax_div, format='%.0e')
 
-                else:
+                    fig.canvas.draw()
+                    filename = './' + folder + 'output_{0:05}.png'.format(it)
+                    fig.savefig(filename)
+
+                if save_vtk:
                     px, py = 1580, 950
                     dpi = 100
                     figx = px / dpi
@@ -388,8 +424,8 @@ try:
                         'uy' : vely
                         })
 
-                    restart_dict = {'batch_dict': batch_dict, 'it': it}
-                    torch.save(restart_dict, filename_restart)
+                restart_dict = {'batch_dict': batch_dict, 'it': it}
+                torch.save(restart_dict, filename_restart)
                     #fig = plt.figure(figsize=(figx, figy), dpi=dpi)
                     #gs = gridspec.GridSpec(1,1)
                     #t = mconf['dt'] * it

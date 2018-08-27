@@ -133,7 +133,6 @@ T advectVel
 
 std::vector<T> solveLinearSystemJacobi
 (
-   float dt,
    T flags,
    T div,
    const bool is_3d,

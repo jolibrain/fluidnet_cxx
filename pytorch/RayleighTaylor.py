@@ -32,9 +32,6 @@ from config import defaultConf
 # Use: python3 print_output.py <folder_with_model> <modelName>
 # e.g: python3 print_output.py data/model_test convModel
 #
-# Utility to print data, output or target fields, as well as errors.
-# It loads the state and runs one epoch with a batch size = 1. It can be used while
-# training, to have some visual help.
 
 #**************************** Load command line arguments *********************
 assert (len(sys.argv) == 3), 'Usage: python3 print_output.py <modelDir> <modelName>'
@@ -64,10 +61,8 @@ def createRayleighTaylorBCs(batch_dict, mconf, rho1, rho2):
     #print('Atwood number : ' + str(A))
     #density = ((1-A) * torch.tanh(100*(coord[:,1]/resY - (0.85 - \
     #                0.05*torch.cos(math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
-    A = (rho2 - rho1) / (rho2 + rho1)
-    print('Atwood number : ' + str(A))
-    density = 0.5*(rho2+rho1 + (rho2-rho1)*torch.tanh(100*(coord[:,1]/resY - (0.5 - \
-                    0.05*torch.cos(math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
+    density = 0.5*(rho2+rho1 + (rho2-rho1)*torch.tanh(100*(coord[:,1]/resY - (0.97 + \
+        0.01*torch.cos(2*math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
 
     #TopWall = (Y > (flags.size(3) - 2)).__and__(X > 0).__and__(X < flags.size(4) - 1)
     #flags.masked_fill_(TopWall, fluid.CellType.TypeEmpty)
@@ -152,8 +147,8 @@ try:
         # Create model and print layers and params
         cuda = torch.device('cuda')
 
-        resX = 100#6000
-        resY = 200#800
+        resX = 200#6000
+        resY = 800
 
         p =       torch.zeros((1,1,1,resY,resX), dtype=torch.float).cuda()
         U =       torch.zeros((1,2,1,resY,resX), dtype=torch.float).cuda()
@@ -169,7 +164,8 @@ try:
 
         restart = False
         real_time = True
-        folder = 'data2/rayleigh_taylor_atwood/'
+        save_vtk = False
+        folder = 'data2/rayleigh_taylor_single_fluid_jacobi/'
         filename_restart = folder + 'restart.pth'
         method = 'jacobi'
         it = 0
@@ -179,16 +175,21 @@ try:
             it = restart_dict['it']
             print('Restarting at it = ' + str(it))
 
-        mconf['maccormackStrength'] = 0.2
-        mconf['buoyancyScale'] = 0.01#0.2#0.1#9.81/resY
+        mconf['maccormackStrength'] = 0.6
+        mconf['buoyancyScale'] = 0.1#0.2#0.1#9.81/resY
         mconf['gravityScale'] = 0.00#0.1#2.0/resY
-        mconf['viscosity'] = 0.01
-        mconf['dt'] = 1.0
-        mconf['jacobiIter'] = 50
+        mconf['viscosity'] = 0.0
+        mconf['operatingDensity'] = 0.0
+        mconf['dt'] = 0.1
+        mconf['pTol'] = 0.1
+        mconf['jacobiIter'] = 200
 
-        mconf['gravityVec'] = {'x': 0, 'y': -1, 'z': 0}
-        max_iter = 10000
-        outIter = 10
+        At = 1/3
+        rho2 = (1+At)/(1-At) - 1
+
+        mconf['gravityVec'] = {'x': 0, 'y': 1, 'z': 0}
+        max_iter = 20000
+        outIter = 100
 
         net = model_saved.FluidNet(mconf, dropout=False)
         if torch.cuda.is_available():
@@ -199,7 +200,7 @@ try:
         my_map.set_bad('gray')
 
         skip = 20
-        scale = 0.6
+        scale = 12
         scale_units = 'xy'
         angles = 'xy'
         headwidth = 0.8#2.5
@@ -216,14 +217,11 @@ try:
         X, Y = np.linspace(0, resX-1, num=resX),\
                 np.linspace(0, resY-1, num=resY)
 
-        createRayleighTaylorBCs(batch_dict, mconf, rho1=0.9, rho2=1.1)
+        createRayleighTaylorBCs(batch_dict, mconf, rho1=0.0, rho2=rho2)
         tensor_vel = batch_dict['U'].clone()
         u1 = (torch.zeros_like(torch.squeeze(tensor_vel[:,0]))).cpu().data.numpy()
         v1 = (torch.zeros_like(torch.squeeze(tensor_vel[:,0]))).cpu().data.numpy()
 
-        #rho_init = torch.squeeze(batch_dict['density'].clone()).cpu().data.numpy()
-        #plt.imshow(rho_init)
-        #plt.show(block=True)
         if real_time:
             fig = plt.figure(figsize=(20,10))
             gs = gridspec.GridSpec(1,5,
@@ -254,13 +252,6 @@ try:
             lib.simulate(conf, mconf, batch_dict, net, method)
             if (it% outIter == 0):
                 print("It = " + str(it))
-                #print('pressure')
-                #print(batch_dict['p'])
-                #print('vel-y')
-                #print(batch_dict['U'][:,1])
-                #print()
-                #plotField(batch_dict, 500, 'Hello.png')
-                #tensor_div = torch.zeros_like(flags)
                 tensor_div = fluid.velocityDivergence(batch_dict['U'].clone(),
                         batch_dict['flags'].clone())
                 pressure = batch_dict['p'].clone()
@@ -287,20 +278,18 @@ try:
                 img_vely_masked = img_vely_masked.filled()
                 img_vel_norm_masked = img_vel_norm_masked.filled()
 
-                #img_zeros_x = np.zeros_like(img_velx)
-                #img_zeros_y = np.zeros_like(img_vely)
-                #ax_div.imshow(img_div, cmap=my_map, origin='lower',
-                #        interpolation='none')
                 if real_time:
                     cax_rho.clear()
                     cax_velx.clear()
                     cax_vely.clear()
                     cax_p.clear()
                     cax_div.clear()
+                    fig.suptitle("it = " + str(it), fontsize=16)
                     im0 = ax_rho.imshow(rho[minY:maxY,minX:maxX],
                         cmap=my_map,
                         origin='lower',
                         interpolation='none')
+                    ax_rho.set_title('Density')
                     fig.colorbar(im0, cax=cax_rho, format='%.0e')
                     qx.set_UVC(img_velx[minY:maxY:skip,minX:maxX:skip],
                            img_vely[minY:maxY:skip,minX:maxX:skip])
@@ -309,31 +298,32 @@ try:
                         cmap=my_map,
                         origin='lower',
                         interpolation='none')
+                    ax_velx.set_title('x-velocity')
                     fig.colorbar(im1, cax=cax_velx, format='%.0e')
                     im2 = ax_vely.imshow(img_vely[minY:maxY,minX:maxX],
                         cmap=my_map,
                         origin='lower',
                         interpolation='none')
+                    ax_vely.set_title('y-velocity')
                     fig.colorbar(im2, cax=cax_vely, format='%.0e')
                     im3 = ax_p.imshow(p[minY:maxY,minX:maxX],
                         cmap=my_map,
                         origin='lower',
                         interpolation='none')
+                    ax_p.set_title('pressure')
                     fig.colorbar(im3, cax=cax_p, format='%.0e')
                     im4 = ax_div.imshow(div[minY:maxY,minX:maxX],
                         cmap=my_map,
                         origin='lower',
                         interpolation='none')
+                    ax_div.set_title('divergence')
                     fig.colorbar(im4, cax=cax_div, format='%.0e')
 
                     fig.canvas.draw()
-                    #scale_units=scale_units,
-                    #angles=angles,
-                    #headwidth=headwidth, headlength=headlength,
-                    #scale=scale,
-                    #color='black')
+                    filename = './' + folder + 'output_{0:05}.png'.format(it)
+                    fig.savefig(filename)
 
-                else:
+                if save_vtk:
                     px, py = 1580, 950
                     dpi = 100
                     figx = px / dpi

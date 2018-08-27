@@ -16,7 +16,7 @@ from . import getDx
 # @input gravity - 3D vector indicating direction of gravity.
 # @input dt - scalar timestep.
 
-def addBuoyancy(U, flags, density, gravity, dt):
+def addBuoyancy(U, flags, density, gravity, rho_star, dt):
     cuda = torch.device('cuda')
     # Argument check
     assert U.dim() == 5 and flags.dim() == 5 and density.dim() == 5,\
@@ -88,7 +88,7 @@ def addBuoyancy(U, flags, density, gravity, dt):
     j_l = zero.where( (j <= 0), j-1)
     j_r = max_Y.where( (j > h-2), j+1)
 
-    rho_star = 1.0
+    rho_star = rho_star
 
     fluid100 =  flags[idx_b, zero, k, j, i_l].eq(CellType.TypeFluid).__and__ \
                 (mCont)

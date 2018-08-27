@@ -7,7 +7,7 @@ defaultConf = {
     'freqToFile' : 5, # Frequency for loss output to file
    # 'loadModel' : False,  # set to True when resuming training or evaluating
     'maxEpochs' : 400,
-    'modelDir' : 'data2/model_divL2_6divLT_TEST_TR', # Folder where the model, the losses and
+    'modelDir' : 'data2/model_divL2_6divLT_TEST_NEW', # Folder where the model, the losses and
                                            # the conf and mconf files are saved
     'modelFilename' : 'convModel',  # Output model file name
     'modelParam' : {

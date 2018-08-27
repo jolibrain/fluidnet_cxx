@@ -51,8 +51,7 @@ def summary(model, input_size):
     model.apply(register_hook)
     # make a forward pass
     print(x.shape)
-    dt = float(0.1) # dummy time step
-    model(x, dt)
+    model(x)
     # remove these hooks
     for h in hooks:
         h.remove()
