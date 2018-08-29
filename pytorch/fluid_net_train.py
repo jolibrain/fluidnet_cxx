@@ -1,5 +1,7 @@
+import glob
 import sys
 import argparse
+import json
 
 import torch
 import torch.nn as nn
@@ -14,13 +16,26 @@ import importlib.util
 
 import lib
 import lib.fluid as fluid
-from config import defaultConf # Dictionnary with configuration and model params.
 
 #********************************** Define Config ******************************
 
-#TODO: allow to overwrite params from the command line by parsing.
+parser = argparse.ArgumentParser()
+parser.add_argument('--defaultConf', help='JSON model config file',
+        default='config.json')
+parser.add_argument('--modelDir', help='NeuralNetwork model location')
+parser.add_argument('--modelFilename', help='model name')
+parser.add_argument('--dataDir', help='dataset location')
 
-conf = defaultConf.copy()
+arguments = parser.parse_args()
+
+with open(arguments.defaultConf, 'r') as f:
+    conf = json.load(f)
+
+conf['dataDir'] = arguments.dataDir or conf['dataDir']
+conf['modelDir'] = arguments.modelDir or conf['modelDir']
+conf['modelFilename'] = arguments.modelFilename or conf['modelFilename']
+conf['modelDirname'] = conf['modelDir'] + '/' + conf['modelFilename']
+
 resume = conf['resumeTraining']
 
 if (conf['preprocOnly']):
@@ -40,18 +55,20 @@ if (conf['preprocOnly']):
 # We create two conf files, general params and model params.
 conf, mconf = tr.createConfDict()
 
-# Save from config.py in main dir
-conf['modelDirname'] = conf['modelDir'] + conf['modelFilename']
+# Create variables from conf dict. In case of restart, this ones will
+# prevail over existing conf. User can modify them in JSON config file
 num_workers = conf['numWorkers']
 batch_size = conf['batchSize']
 max_epochs = conf['maxEpochs']
 shuffle_training = conf['shuffleTraining']
 print_training = conf['printTraining'] == 'show' or conf['printTraining'] == 'save'
 save_or_show = conf['printTraining'] == 'save'
-print(save_or_show)
 lr = mconf['lr']
 
 if resume:
+    print()
+    print('            RESTARTING TRAINING            ')
+    print()
     print('==> loading checkpoint')
     mpath = glob.os.path.join(conf['modelDir'], conf['modelFilename'] + '_lastEpoch_best.pth')
     assert glob.os.path.isfile(mpath), mpath  + ' does not exits!'
@@ -62,13 +79,13 @@ if resume:
     mcpath = glob.os.path.join(conf['modelDir'], conf['modelFilename'] + '_mconf.pth')
     assert glob.os.path.isfile(mpath), cpath  + ' does not exits!'
     assert glob.os.path.isfile(mpath), mcpath  + ' does not exits!'
-    conf = torch.load(cpath)
-    mconf = torch.load(mcpath)
+    conf.update(torch.load(cpath))
+    mconf.update(torch.load(mcpath))
 
     print('==> copying and loading corresponding model module')
-    path = conf['modelDir'] + '/'
+    path = conf['modelDir']
     path_list = path.split(glob.os.sep)
-    saved_model_name = glob.os.path.join(*path_list[:-1], path_list[-2] + '_saved.py')
+    saved_model_name = glob.os.path.join('/', *path_list, path_list[-1] + '_saved.py')
     print(saved_model_name)
     temp_model = glob.os.path.join('lib', path_list[-2] + '_saved_resume.py')
     print(temp_model)
@@ -130,8 +147,9 @@ try:
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode = 'min',factor = 0.6, patience = 10, verbose = True, threshold = 3e-4, threshold_mode = 'rel')
 
     #************************ Training and Validation*******************
-
+    # Test set Scenes idx to plot during validation
     list_to_plot = [64, 2560, 5120, 11392]
+
     def run_epoch(epoch, loader, training=True):
         if training:
             #set model to train
@@ -259,8 +277,12 @@ try:
             if print_training and (not shuffled) and (batch_idx*len(data) in list_to_plot) \
                 and ((epoch-1) % 5 == 0):
                 print_list = [batch_idx*len(data), epoch]
-                filename = 'output_{0:05d}_ep_{1:03d}.png'.format(*print_list)
-                file_plot = glob.os.path.join(m_path, filename)
+                filename_p = 'output_p_{0:05d}_ep_{1:03d}.png'.format(*print_list)
+                filename_vel = 'output_v_{0:05d}_ep_{1:03d}.png'.format(*print_list)
+                filename_div = 'output_div_{0:05d}_ep_{1:03d}.png'.format(*print_list)
+                file_plot_p = glob.os.path.join(m_path, filename_p)
+                file_plot_vel = glob.os.path.join(m_path, filename_vel)
+                file_plot_div = glob.os.path.join(m_path, filename_div)
                 with torch.no_grad():
                     lib.plotField(out=[out_p[0].unsqueeze(0),
                                        out_U[0].unsqueeze(0),
@@ -272,8 +294,46 @@ try:
                                         p_l1_total_loss, div_l1_total_loss],
                                   mconf=mconf,
                                   epoch=epoch,
-                                  filename=file_plot,
+                                  filename=file_plot_p,
                                   save=save_or_show,
+                                  plotPres=True,
+                                  plotVel=False,
+                                  plotDiv=False,
+                                  title=False,
+                                  x_slice=104)
+                    lib.plotField(out=[out_p[0].unsqueeze(0),
+                                       out_U[0].unsqueeze(0),
+                                       out_div[0].unsqueeze(0)],
+                                  tar=target[0].unsqueeze(0),
+                                  flags=flags[0].unsqueeze(0),
+                                  loss=[total_loss, p_l2_total_loss,
+                                        div_l2_total_loss, div_lt_total_loss,
+                                        p_l1_total_loss, div_l1_total_loss],
+                                  mconf=mconf,
+                                  epoch=epoch,
+                                  filename=file_plot_vel,
+                                  save=save_or_show,
+                                  plotPres=False,
+                                  plotVel=True,
+                                  plotDiv=False,
+                                  title=False,
+                                  x_slice=104)
+                    lib.plotField(out=[out_p[0].unsqueeze(0),
+                                       out_U[0].unsqueeze(0),
+                                       out_div[0].unsqueeze(0)],
+                                  tar=target[0].unsqueeze(0),
+                                  flags=flags[0].unsqueeze(0),
+                                  loss=[total_loss, p_l2_total_loss,
+                                        div_l2_total_loss, div_lt_total_loss,
+                                        p_l1_total_loss, div_l1_total_loss],
+                                  mconf=mconf,
+                                  epoch=epoch,
+                                  filename=file_plot_div,
+                                  save=save_or_show,
+                                  plotPres=False,
+                                  plotVel=False,
+                                  plotDiv=True,
+                                  title=False,
                                   x_slice=104)
 
             if training:
@@ -360,14 +420,14 @@ try:
 
         # Here we are a bit barbaric, and we copy the whole model.py into the saved model
         # folder, so that we don't lose the network architecture.
-        # We do that only if not resuming training.
+        # We do that only if resuming training.
         path, last = glob.os.path.split(m_path)
         saved_model_name = glob.os.path.join(path, last, last + '_saved.py')
         copyfile('lib/model.py', saved_model_name)
 
         # Delete plot file if starting from scratch
         if (glob.os.path.isfile(file_train + '.npy') and glob.os.path.isfile(file_val + '.npy')):
-            print('Are you sure you want to delete plot files? [y/n]')
+            print('Are you sure you want to delete existing files and start training from scratch. [y/n]')
             choice = input().lower()
             if choice in yes:
                 glob.os.remove(file_train + '.npy')

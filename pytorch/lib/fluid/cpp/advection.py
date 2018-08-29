@@ -6,6 +6,11 @@ def __check_advection_method__(method):
             'Error: Advection method not supported. Options are: \
                      maccormackFluidNet, eulerFluidNet'
 
+def correctScalar(dt, src, div, flags):
+    maskFluid = flags.eq(1)
+    src.masked_scatter_(maskFluid, \
+            (src + dt*0.5*src*div).masked_select(maskFluid))
+
 def advectScalar(dt, src, U, flags, method = 'maccormackFluidNet', boundary_width = 1,
         sample_outside_fluid = False, maccormack_strength = 0.75):
     r"""Advects scalar field src by the input vel field U

@@ -7,7 +7,9 @@ from .velocity_divergence import velocityDivergence
 from .velocity_update import velocityUpdate
 from .source_terms import addBuoyancy, addGravity
 from .viscosity import addViscosity
+from .geometry_utils import createCylinder, createBox2D
 from .util import emptyDomain
-from .cpp.advection import advectScalar, advectVelocity
+from .init_conditions import createPlumeBCs
+from .cpp.advection import correctScalar, advectScalar, advectVelocity
 from .cpp.solve_linear_sys import solveLinearSystemJacobi
 

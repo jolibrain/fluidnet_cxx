@@ -77,6 +77,9 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
                 method="maccormackFluidNet", \
                 boundary_width=1, sample_outside_fluid=sampleOutsideFluid, \
                 maccormack_strength=maccormackStrength)
+        if mconf['correctScalar']:
+            div = fluid.velocityDivergence(U, flags)
+            fluid.correctScalar(dt, density, div, flags)
     else:
         density = torch.zeros_like(flags)
 
@@ -85,7 +88,8 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
         U = fluid.advectVelocity(dt=dt, orig=U, U=U, flags=flags, method="maccormackFluidNet", \
             boundary_width=1, maccormack_strength=maccormackStrength)
     else:
-        # Self-advect velocity if inviscid
+        # Advect viscous velocity field orig by the non-divergent
+        # velocity field U.
         U = fluid.advectVelocity(dt=dt, orig=orig, U=U, flags=flags, method="maccormackFluidNet", \
             boundary_width=1, maccormack_strength=maccormackStrength)
 

@@ -210,7 +210,7 @@ class FluidNet(nn.Module):
 
         # Correct U = UDiv - grad(p)
         # flags is the one with Manta's values, not occupancy in [0,1]
-        fluid.velocityUpdate(p, UDiv, flags)
+        fluid.velocityUpdate(pressure=p, U=UDiv, flags=flags)
 
         # We now UNDO the scale factor we applied on the input.
         if self.mconf['normalizeInput']:

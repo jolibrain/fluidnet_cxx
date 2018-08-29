@@ -55,12 +55,12 @@ def velocityUpdate(pressure, U, flags):
             (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(CellType.TypeFluid))
         # Current cell is fluid and neighbours to left or down are obstacle
         mask_fluid_obstacle_im1 = mask_fluid.__and__ \
-            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).eq(CellType.TypeObstacle))
+            (flags.narrow(4, 0, w-2).narrow(3, 1, h-2).eq(CellType.TypeEmpty))
         mask_fluid_obstacle_jm1 = mask_fluid.__and__ \
-            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(CellType.TypeObstacle))
+            (flags.narrow(4, 1, w-2).narrow(3, 0, h-2).eq(CellType.TypeEmpty))
         # Current cell is obstacle and not outflow
         mask_obstacle = flags.narrow(4, 1, w-2).narrow(3, 1, h-2) \
-                            .eq(CellType.TypeObstacle).__and__ \
+                            .eq(CellType.TypeEmpty).__and__ \
                      (flags.narrow(4, 1, w-2).narrow(3, 1, h-2) \
                             .ne(CellType.TypeOutflow))
         # Current cell is obstacle and neighbours to left or down are fluid
@@ -148,6 +148,16 @@ def velocityUpdate(pressure, U, flags):
             mask_obstacle_fluid * \
             (U.narrow(4, 1, w-2).narrow(3, 1, h-2) + Pijk_m) + \
             mask_no_fluid * (0))
+        #print('******************************************************')
+
+        #print('masks')
+        #print('*    *         *            *')
+        #print(mask_fluid)
+        #print('*    *         *            *')
+        #print(mask_fluid_obstacle)
+        #print(mask_obstacle_fluid)
+        #print(mask_no_fluid)
+        #print('******************************************************')
     else:
         U[:,:,1:(d-1),1:(h-1),1:(w-1)] =  mask * \
             (U.narrow(4, 1, w-1).narrow(3, 1, h-1).narrow(2, 1, d-2) - (Pijk - Pijk_m))

@@ -70,12 +70,14 @@ class FluidNetDataset(Dataset):
 
         else:
             if (glob.os.path.isfile(self.logname)):
+                print()
                 print('For dataset ' + str(self.base_dir))
                 print('a log file exists showing a preprocessing in the past.')
+                print('OK to proceed with restarting')
                 self.pr_log = torch.load(self.logname)
-                print(self.pr_log)
             else:
-                print('No log file found, please create one by preprocessing the dataset')
+                print()
+                print('No log file found, please create one by preprocessing the dataset. Set resume to false.')
                 sys.exit()
 
         # Depending on inputs and loss, we will load different data in __getitem__

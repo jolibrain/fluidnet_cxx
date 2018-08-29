@@ -12,7 +12,7 @@ import numpy as np
 
 
 def plotField(out, tar, flags, loss, mconf, epoch=None, filename=None, save=False,
-        plotGraphs=True, plotPres=True, plotVel=True, plotDiv=True, **kwargs):
+        plotGraphs=True, plotPres=True, plotVel=True, plotDiv=True, title=True, **kwargs):
 
     x_slice = None
     y_slice = None
@@ -197,11 +197,11 @@ def plotField(out, tar, flags, loss, mconf, epoch=None, filename=None, save=Fals
                      top=0.91, bottom=0.05,
                      left=0.05, right=0.95)
 
-    if epoch is not None:
-        fig.suptitle(r'$\bf{FluidNet\ output}$' + ' - Loss = ' + title + ' - ' + r'$\bf{' + 'Epoch : ' + str(epoch) + '}$')
-    else:
-        fig.suptitle(r'$\bf{FluidNet\ output}$' ' - Loss = ' + title)
-
+    if title:
+        if epoch is not None:
+            fig.suptitle(r'$\bf{FluidNet\ output}$' + ' - Loss = ' + title + ' - ' + r'$\bf{' + 'Epoch : ' + str(epoch) + '}$')
+        else:
+            fig.suptitle(r'$\bf{FluidNet\ output}$' ' - Loss = ' + title)
 
     it_row = 0
     s = np.linspace(0, 127)
@@ -229,11 +229,11 @@ def plotField(out, tar, flags, loss, mconf, epoch=None, filename=None, save=Fals
             y0,y1 = ax.get_ylim()
             ax.set_aspect((x1-x0)/(y1-y0))
             ax.legend()
-            ax.set_ylabel('pressure')
+            ax.set_ylabel('Pressure')
             it_col += 1
 
         ax = plt.subplot(gs[it_row,it_col])
-        ax.set_title('P_target')
+        ax.set_title('Presure (target)')
         ax.axis('off')
         ax.imshow(p_tar_np,cmap=my_cmap, origin='lower', interpolation='none', \
                 clim=[min_val_p_tar,max_val_p_tar])
@@ -244,7 +244,7 @@ def plotField(out, tar, flags, loss, mconf, epoch=None, filename=None, save=Fals
         it_col += 1
 
         ax = plt.subplot(gs[it_row, it_col])
-        ax.set_title('P_predicted')
+        ax.set_title('Pressure (predicted)')
         ax.axis('off')
         ax.imshow(p_out_np,cmap=my_cmap, origin='lower', interpolation='none', \
                 clim=[min_val_p_out,max_val_p_out])
@@ -279,18 +279,18 @@ def plotField(out, tar, flags, loss, mconf, epoch=None, filename=None, save=Fals
                 U_out = U_out_line_np[:,f_s]
                 U_tar = U_tar_line_np[:,f_s]
             ax = plt.subplot(gs[it_row,it_col])
-            ax.set_title('U')
+            ax.set_title('Velocity')
             ax.plot(U_out, label = 'Output')
             ax.plot(U_tar, label = 'Target')
             x0,x1 = ax.get_xlim()
             y0,y1 = ax.get_ylim()
             ax.set_aspect((x1-x0)/(y1-y0))
             ax.legend()
-            ax.set_ylabel('velocity')
+            ax.set_ylabel('V')
             it_col += 1
 
         ax = plt.subplot(gs[it_row, it_col])
-        ax.set_title('|U|_target')
+        ax.set_title('Vel-norm (target)')
         ax.axis('off')
         X, Y = np.linspace(0, 127, num=128), np.linspace(0, 127, num=128)
         ax.imshow(U_norm_tar_np, cmap=my_cmap, origin='lower',
@@ -308,16 +308,16 @@ def plotField(out, tar, flags, loss, mconf, epoch=None, filename=None, save=Fals
         it_col += 1
 
         ax = plt.subplot(gs[it_row, it_col])
-        ax.set_title('|U|_predicted')
+        ax.set_title('Vel-norm (predicted)')
         ax.axis('off')
         ax.imshow(U_norm_out_np, cmap=my_cmap, origin='lower',
                 interpolation='none', clim=[min_val_U_norm,max_val_U_norm])
-        ax.quiver(X[::skip], Y[::skip],
-                Ux_out_np_adm[::skip, ::skip], Uy_out_np_adm[::skip, ::skip],
-                scale_units=scale_units,
-                angles=angles,
-                headwidth=headwidth, headlength=headlength, scale=scale,
-                color='pink')
+        #ax.quiver(X[::skip], Y[::skip],
+        #        Ux_out_np_adm[::skip, ::skip], Uy_out_np_adm[::skip, ::skip],
+        #        scale_units=scale_units,
+        #        angles=angles,
+        #        headwidth=headwidth, headlength=headlength, scale=scale,
+        #        color='pink')
         it_col += 1
 
         ax = plt.subplot(gs[it_row, it_col])
@@ -335,7 +335,7 @@ def plotField(out, tar, flags, loss, mconf, epoch=None, filename=None, save=Fals
             if y_slice is not None:
                 div_out = div_line_np[:,f_s]
             ax = plt.subplot(gs[it_row,it_col])
-            ax.set_title('divergence')
+            ax.set_title('Divergence')
             ax.plot(div_out, label = 'Output')
             ax.plot(s, [0 for i in range(len(s))], label = 'Target')
             x0,x1 = ax.get_xlim()
@@ -346,7 +346,7 @@ def plotField(out, tar, flags, loss, mconf, epoch=None, filename=None, save=Fals
             it_col += 1
 
         ax = plt.subplot(gs[it_row, it_col])
-        ax.set_title('div at output')
+        ax.set_title('Divergence')
         ax.axis('off')
         ax.imshow(div_np,cmap=my_cmap, origin='lower', interpolation='none', \
                 clim=[min_div,max_div])
@@ -357,7 +357,7 @@ def plotField(out, tar, flags, loss, mconf, epoch=None, filename=None, save=Fals
         it_col += 1
 
         ax = plt.subplot(gs[it_row, it_col])
-        ax.set_title('div error')
+        ax.set_title('Divergence error')
         ax.axis('off')
         ax.imshow(err_div_np,cmap=my_cmap, origin='lower', interpolation='none', \
                 clim=[0,max_div**2])
