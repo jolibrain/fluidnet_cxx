@@ -4,3 +4,4 @@ from .multi_scale_net import MultiScaleNet
 from .model import FluidNet
 from .simulate import simulate
 from .plot_field import plotField
+from .argument_parser import SmartFormatter

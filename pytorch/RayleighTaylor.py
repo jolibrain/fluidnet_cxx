@@ -1,14 +1,13 @@
-import sys
-import os
+import glob
 import argparse
+import yaml
 
 import torch
 import torch.autograd
-import math
 import time
 
 import matplotlib
-if 'DISPLAY' not in os.environ:
+if 'DISPLAY' not in glob.os.environ:
     matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -21,96 +20,79 @@ import numpy.ma as ma
 
 import pyevtk.hl as vtk
 
-import glob
 from shutil import copyfile
 import importlib.util
 
 import lib
 import lib.fluid as fluid
-from config import defaultConf
 
-# Use: python3 print_output.py <folder_with_model> <modelName>
-# e.g: python3 print_output.py data/model_test convModel
-#
+# Usage python3 RayleighTaylor.py
+# Use python3 RayleighTaylor.py -h for more details
 
 #**************************** Load command line arguments *********************
-assert (len(sys.argv) == 3), 'Usage: python3 print_output.py <modelDir> <modelName>'
-assert (glob.os.path.exists(sys.argv[1])), 'Directory ' + str(sys.argv[1]) + ' does not exists'
 
-def createRayleighTaylorBCs(batch_dict, mconf, rho1, rho2):
+parser = argparse.ArgumentParser(description='Rayleigh Taylor simulation. \n'
+        'Read rayleighTaylorConfig.yaml for more information', \
+        formatter_class= lib.SmartFormatter)
+parser.add_argument('--simConf',
+        default='rayleighTaylorConfig.yaml',
+        help='R|Simulation yaml config file.\n'
+        'Overwrites parameters from trainingConf file.\n'
+        'Default: rayleighTaylorConfig.yaml')
+parser.add_argument('--trainingConf',
+        default='config.yaml',
+        help='R|Training yaml config file.\n'
+        'Default: config.yaml')
+parser.add_argument('--modelDir',
+        help='R|Neural network model location.\n'
+        'Default: written in simConf file.')
+parser.add_argument('--modelFilename',
+        help='R|Model name.\n'
+        'Default: written in simConf file.')
+parser.add_argument('--outputFolder',
+        help='R|Folder for sim output.\n'
+        'Default: written in simConf file.')
+parser.add_argument('--restartSim', action='store_true', default=False,
+        help='R|Restarts simulation from checkpoint.\n'
+        'Default: written in simConf file.')
 
-    cuda = torch.device('cuda')
-    # batch_dict at input: {p, UDiv, flags, density}
-    assert len(batch_dict) == 4, "Batch must contain 4 tensors (p, UDiv, flags, density)"
-    UDiv = batch_dict['U']
-    flags = batch_dict['flags']
+arguments = parser.parse_args()
 
-    resX = UDiv.size(4)
-    resY = UDiv.size(3)
+# Loading a YAML object returns a dict
+with open(arguments.simConf, 'r') as f:
+    simConf = yaml.load(f)
+with open(arguments.trainingConf, 'r') as f:
+    conf = yaml.load(f)
 
-    # Here, we just impose initial conditions.
-    # Upper layer rho2, vel = 0
-    # Lower layer rho1, vel = 0
+if not arguments.restartSim:
+    restart_sim = simConf['restartSim']
+else:
+    restart_sim = arguments.restartSim
 
-    X = torch.arange(0, resX, device=cuda).view(resX).expand((1,resY,resX))
-    Y = torch.arange(0, resY, device=cuda).view(resY, 1).expand((1,resY,resX))
-    coord = torch.cat((X,Y), dim=0).unsqueeze(0).unsqueeze(2)
+folder = arguments.outputFolder or simConf['outputFolder']
+if (not glob.os.path.exists(folder)):
+    glob.os.makedirs(folder)
 
-    # Atwood number
-    #A = ((1+rho2) - (1+rho1)) / ((1+rho2) + (1+rho1))
-    #print('Atwood number : ' + str(A))
-    #density = ((1-A) * torch.tanh(100*(coord[:,1]/resY - (0.85 - \
-    #                0.05*torch.cos(math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
-    density = 0.5*(rho2+rho1 + (rho2-rho1)*torch.tanh(100*(coord[:,1]/resY - (0.97 + \
-        0.01*torch.cos(2*math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
+restart_config_file = glob.os.path.join('/', folder, 'rayleighTaylorConfig.yaml')
+restart_state_file = glob.os.path.join('/', folder, 'restart.pth')
+save_rho_file = glob.os.path.join('/', folder, 'avg_density.npy')
 
-    #TopWall = (Y > (flags.size(3) - 2)).__and__(X > 0).__and__(X < flags.size(4) - 1)
-    #flags.masked_fill_(TopWall, fluid.CellType.TypeEmpty)
-    print('density')
-    print(density)
-    print('flags')
-    print(flags)
-    #upper_mask = ((Y/resY) >= (0.5 + 0.01 * \
-    #    torch.cos(math.pi*(X/resX))))
-    #lower_mask = upper_mask.eq(0)
-    #density.masked_fill_(upper_mask, rho2)
-    #density.masked_fill_(lower_mask, rho1)
-    batch_dict['density'] = density
-    batch_dict['flags'] = flags
-    #Initialize pressure to hydrostatic:
-    # p = 0 on top
-    # p = P0 - rho*g*y
-    #gravity = torch.FloatTensor(3).fill_(0).cuda()
-    #buoyancyScale = mconf['buoyancyScale']
-    #gravity[0] = mconf['gravityVec']['x']
-    #gravity[1] = mconf['gravityVec']['y']
-    #gravity[2] = mconf['gravityVec']['z']
-    #gravity.mul_(-buoyancyScale)
+if restart_sim:
+    # Check if configPlume.yaml exists in folder
+    assert glob.os.path.isfile(restart_config_file), 'YAML config file does not exists for restarting.'
+    with open(restart_config_file) as f:
+        simConfig = yaml.load(f)
 
-    #pressure = coord[:,1].unsqueeze(1)*gravity[1]
-    #fluid.velocityUpdate(0.1, pressure, UDiv, flags)
-    #batch_dict['U'] = UDiv
-    #print(pressure)
-    #print(UDiv[:,1])
-    # batch_dict at output = {p, UDiv, flags, density}
-
-#********************************** Define Config ******************************
-
-#TODO: allow to overwrite params from the command line by parsing.
-
-conf = defaultConf.copy()
-conf['modelDir'] = sys.argv[1]
-print(sys.argv[1])
+conf['modelDir'] = arguments.modelDir or simConf['modelDir']
+assert (glob.os.path.exists(conf['modelDir'])), 'Directory ' + str(conf['modelDir']) + ' does not exists'
+conf['modelFilename'] = arguments.modelFilename or simConf['modelFilename']
 conf['modelDirname'] = conf['modelDir'] + '/' + conf['modelFilename']
-resume = False
-
-#*********************************** Select the GPU ****************************
-print('Active CUDA Device: GPU', torch.cuda.current_device())
+resume = False # For training, at inference set always to false
 
 path = conf['modelDir']
 path_list = path.split(glob.os.sep)
-saved_model_name = glob.os.path.join(*path_list[:-1], path_list[-2] + '_saved.py')
-temp_model = glob.os.path.join('lib', path_list[-2] + '_saved_simulate.py')
+saved_model_name = glob.os.path.join('/', *path_list, path_list[-1] + '_saved.py')
+temp_model = glob.os.path.join('lib', path_list[-1] + '_saved_simulate.py')
 copyfile(saved_model_name, temp_model)
 
 assert glob.os.path.isfile(temp_model), temp_model  + ' does not exits!'
@@ -123,15 +105,18 @@ try:
 
     conf, mconf = te.createConfDict()
 
-    print('==> overwriting conf and file_mconf')
     cpath = glob.os.path.join(conf['modelDir'], conf['modelFilename'] + '_conf.pth')
     mcpath = glob.os.path.join(conf['modelDir'], conf['modelFilename'] + '_mconf.pth')
     assert glob.os.path.isfile(mcpath), cpath  + ' does not exits!'
     assert glob.os.path.isfile(mcpath), mcpath  + ' does not exits!'
-    conf = torch.load(cpath)
-    mconf = torch.load(mcpath)
+    conf.update(torch.load(cpath))
+    mconf.update(torch.load(mcpath))
 
-    print('==> loading checkpoint')
+    print('==> overwriting mconf with user-defined simulation parameters')
+    # Overwrite mconf values with user-defined simulation values.
+    mconf.update(simConf)
+
+    print('==> loading model')
     mpath = glob.os.path.join(conf['modelDir'], conf['modelFilename'] + '_lastEpoch_best.pth')
     assert glob.os.path.isfile(mpath), mpath  + ' does not exits!'
     state = torch.load(mpath)
@@ -141,14 +126,10 @@ try:
     #********************************** Create the model ***************************
     with torch.no_grad():
 
-        print('')
-        print('----- Model ------')
-
-        # Create model and print layers and params
         cuda = torch.device('cuda')
 
-        resX = 200#6000
-        resY = 800
+        resX = simConf['resX']
+        resY = simConf['resY']
 
         p =       torch.zeros((1,1,1,resY,resX), dtype=torch.float).cuda()
         U =       torch.zeros((1,2,1,resY,resX), dtype=torch.float).cuda()
@@ -162,39 +143,45 @@ try:
         batch_dict['flags'] = flags
         batch_dict['density'] = density
 
-        restart = False
-        real_time = True
-        save_vtk = False
-        folder = 'data2/rayleigh_taylor_single_fluid_jacobi/'
-        filename_restart = folder + 'restart.pth'
-        method = 'jacobi'
+        real_time = simConf['realTimePlot']
+        save_vtk = simConf['saveVTK']
+        method = simConf['simMethod']
         it = 0
-        if restart:
-            restart_dict = torch.load(filename_restart)
-            batch_dict = restart_dict['batch_dict']
-            it = restart_dict['it']
-            print('Restarting at it = ' + str(it))
 
-        mconf['maccormackStrength'] = 0.6
-        mconf['buoyancyScale'] = 0.1#0.2#0.1#9.81/resY
-        mconf['gravityScale'] = 0.00#0.1#2.0/resY
-        mconf['viscosity'] = 0.0
-        mconf['operatingDensity'] = 0.0
-        mconf['dt'] = 0.1
-        mconf['pTol'] = 0.1
-        mconf['jacobiIter'] = 200
+        max_iter = simConf['maxIter']
+        outIter = simConf['statIter']
 
-        At = 1/3
-        rho2 = (1+At)/(1-At) - 1
-
-        mconf['gravityVec'] = {'x': 0, 'y': 1, 'z': 0}
-        max_iter = 20000
-        outIter = 100
+        rho1 = mconf['rho1']
+        rho2 = mconf['rho2']
 
         net = model_saved.FluidNet(mconf, dropout=False)
         if torch.cuda.is_available():
             net = net.cuda()
         net.load_state_dict(state['state_dict'])
+
+        print('Creating initial conditions')
+        fluid.createRayleighTaylorBCs(batch_dict, mconf, rho1=rho1, rho2=rho2)
+        # If restarting, overwrite all fields with checkpoint.
+
+        if restart_sim:
+            # Check if restart file exists in folder
+            assert glob.os.path.isfile(restart_state_file), 'Restart file does not exists.'
+            restart_dict = torch.load(restart_state_file)
+            batch_dict = restart_dict['batch_dict']
+            it = restart_dict['it']
+            print('Restarting from checkpoint at it = ' + str(it))
+
+        # Create YAML file in output folder
+        with open(restart_config_file, 'w') as outfile:
+                yaml.dump(simConf, outfile)
+
+        # File with average density
+        if not restart_sim:
+            avg_density = np.empty((0,2))
+        else:
+            avg_density = np.load(save_rho_file)
+
+        torch.set_printoptions(precision=3, edgeitems = 5)
 
         my_map = cm.jet
         my_map.set_bad('gray')
@@ -206,8 +193,6 @@ try:
         headwidth = 0.8#2.5
         headlength = 5#2
 
-        torch.set_printoptions(precision=3, edgeitems = 5)
-
         minY = 0
         maxY = resY
         maxY_win = resY
@@ -217,7 +202,6 @@ try:
         X, Y = np.linspace(0, resX-1, num=resX),\
                 np.linspace(0, resY-1, num=resY)
 
-        createRayleighTaylorBCs(batch_dict, mconf, rho1=0.0, rho2=rho2)
         tensor_vel = batch_dict['U'].clone()
         u1 = (torch.zeros_like(torch.squeeze(tensor_vel[:,0]))).cpu().data.numpy()
         v1 = (torch.zeros_like(torch.squeeze(tensor_vel[:,0]))).cpu().data.numpy()
@@ -246,7 +230,6 @@ try:
                 scale=scale,
                 #headwidth=headwidth, headlength=headlength,
                 color='black')
-        #ax_vely = fig.add_subplot(gs[1], frameon=False, aspect=1)
 
         while (it < max_iter):
             lib.simulate(conf, mconf, batch_dict, net, method)
@@ -267,6 +250,13 @@ try:
                 img_vely = torch.squeeze(tensor_vel[:,1]).cpu().data.numpy()
                 img_vel_norm = torch.squeeze( \
                         torch.norm(tensor_vel, dim=1, keepdim=True)).cpu().data.numpy()
+
+                # As there is no source of fluid, the average density should be conserved
+                rho_avg = torch.mean(density).item()
+                print("Avg rho = " + str(rho_avg))
+                avg_density = np.append(avg_density, [[it, rho_avg]],
+                        axis=0)
+                np.save(save_rho_file, avg_density)
 
                 img_velx_masked = ma.array(img_velx, mask=np_mask)
                 img_vely_masked = ma.array(img_vely, mask=np_mask)
@@ -320,7 +310,7 @@ try:
                     fig.colorbar(im4, cax=cax_div, format='%.0e')
 
                     fig.canvas.draw()
-                    filename = './' + folder + 'output_{0:05}.png'.format(it)
+                    filename = folder + '/output_{0:05}.png'.format(it)
                     fig.savefig(filename)
 
                 if save_vtk:
@@ -383,7 +373,7 @@ try:
                     p = np.ascontiguousarray(pressure_masked[minX:maxX,minY:maxY])
                     velx = np.ascontiguousarray(velx_masked[minX:maxX,minY:maxY])
                     vely = np.ascontiguousarray(vely_masked[minX:maxX,minY:maxY])
-                    filename = './' + folder + 'output_{0:05}'.format(it)
+                    filename = folder + '/output_{0:05}'.format(it)
                     vtk.gridToVTK(filename, x, y, z, cellData = {
                         'density': rho,
                         'divergence': divergence,
@@ -393,37 +383,7 @@ try:
                         })
 
                     restart_dict = {'batch_dict': batch_dict, 'it': it}
-                    torch.save(restart_dict, filename_restart)
-                    #fig = plt.figure(figsize=(figx, figy), dpi=dpi)
-                    #gs = gridspec.GridSpec(1,1)
-                    #t = mconf['dt'] * it
-                    #fig.suptitle(('t = {:7.2f} s').format(t),
-                    #        fontsize=14,
-                    #        weight='bold')
-                    #ax_vel = fig.add_subplot(gs[0], frameon=False, aspect=1)
-                    #ax_vel.imshow(img_vel_norm_masked[minY:maxY,minX:maxX],
-                    #    cmap=my_map,
-                    #    origin='lower',
-                    #    interpolation='none')
-                    #qx = ax_vel.quiver(X[:maxX_win:skip], Y[:maxY_win:skip],
-                    #    img_velx[minY:maxY:skip,minX:maxX:skip],
-                    #    img_vely[minY:maxY:skip,minX:maxX:skip],
-                    #    #headwidth=headwidth, headlength=headlength,
-                    #    color='black')
-                    #filename = 'data2/simulation/vel_it_{0:05}.png'.format(it)
-                    #fig.savefig(filename)
-                    #plt.close()
-                #ax_vely.imshow(img_vely_masked[minY:maxY,:maxX],
-                #        cmap=my_map,
-                #        origin='lower',
-                #        interpolation='none')
-                #ax_vely.quiver(X[minX:maxX,:maxY], Y[minX:maxX,:maxY],
-                #    img_zeros_x[minX:maxX,:maxY],
-                #    img_zeros_y[minX:maxX,:maxY],
-                #    scale_units=scale_units,
-                #    angles=angles,
-                #    headwidth=headwidth, headlength=headlength, scale=scale,
-                #    color='black')
+                    torch.save(restart_dict, restart_state_file)
 
             it += 1
 

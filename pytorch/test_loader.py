@@ -9,5 +9,4 @@ torch.set_printoptions(precision=4, threshold=None, edgeitems=10, linewidth=None
 
 print(p)
 print(pDiv)
-
 print(UDiv)

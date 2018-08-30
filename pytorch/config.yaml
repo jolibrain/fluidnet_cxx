@@ -1,0 +1,108 @@
+# Configuration file with default parameters.
+# Some can be modified through the command line. See help function for training
+# script and README.md for more info.
+# This table is saved to disk (as pytorch objects) on every epoch
+# so that simulations can be paused and restarted.
+
+batchSize: 128
+# dataDir : Dataset location
+dataDir: "/fdata/fluidnet" 
+# dataset : Dataset name. Folder inside dataDir with training and testing scenes
+dataset: "output_current_model_sphere"
+# freqToFile : Epoch frequency for loss output to file/image saving.
+freqToFile: 5
+# maxEpochs : Maximum number of epochs
+maxEpochs: 400
+# modelDir : Output folder for trained model and loss log.
+modelDir: "/data1/aalgua/data_training/model_divL2_TEST_JSON" 
+# modelFilename : Trained model name
+modelFilename: "convModel"  
+modelParam:
+    # inputChannels : Network inputs. At least one of them must be set to true!
+    inputChannels:
+        div: true
+        pDiv: false
+        UDiv: false
+    # fooLambda : Weighting for each loss. Set to 0 to disable loss.
+    # MSE of pressure
+    pL2Lambda: 0
+    # MSE of divergence (Ground truth is zero divergence)
+    divL2Lambda: 1
+    # Absolute difference of pressure
+    pL1Lambda: 0
+    # Absolute difference of divergence
+    divL1Lambda: 0
+    # MSE of long term divergence
+    # If > 0, implements the Long Term divergence concept from FluidNet
+    divLongTermLambda: 0
+    # Time step: default simulation timestep. 
+    dt: 0.1
+    # buoyancyScale : Buoyancy forces scale
+    # gravityScale : Gravity forces scale
+    # Note: Manta and FluidNet divide gravity forces into "gravity" and "buoyancy"
+    # They represent the two terms arising from Boussinesq approximation
+    # rho*g = rho_0*g + delta_rho*g
+    #           (1)         (2)
+    # rho_0 being the average density and delta_rho local difference of density
+    # w.r.t average density.
+    # Mantaflow calls (1) gravity and (2) buoyancy and allows for different g's 
+    buoyancyScale: 0
+    gravityScale: 0
+    # Introduces a correcting factor in the denisty equation 
+    # from "A splitting method for incompressible flows with variable
+    # density based on a pressure Poisson equation" (Guermond, Salgado).
+    # Not really tested... Recommendation is to leave it as false.
+    correctScalar: false
+    # viscosity : introduces a viscous term in moment equation.
+    # Algortihm taken from the book "Fluid Simulation for Computer Graphics" by
+    # Bridson
+    viscosity: 0
+    # model : options ('FluidNet', 'ScaleNet')
+    #   -FluidNet : uses the architecture found in lib/model.py (based on FluidNet)
+    #   -ScaleNet : uses a multiscale architecture found in lib/multi_scale_net.py 
+    model: "FluidNet"
+    # normalizeInput : if true, normalizes input by max(std(chan), threshold)
+    normalizeInput: true
+    # normalizeInputChan : which channel to calculate std
+    normalizeInputChan: "UDiv"
+    # normalizeInputThreshold : don't normalize input noise
+    normalizeInputThreshold: 0.00001  
+    # longTermDivNumSteps : We want to measure what the divergence is after
+    # a set number of steps for each training and test sample. Set table
+    # to nil to disable, (or set longTermDivLambda to 0).
+    longTermDivNumSteps:
+        - 4
+        - 16
+    # longTermDivProbability is the probability that longTermDivNumSteps[0] 
+    # will be taken, otherwise longTermDivNumSteps[1] will be taken with
+    # probability of 1 - longTermDivProbability.
+    longTermDivProbability: 0.9
+    # timeScaleSigma : Amplitude of time scale perturb during training.
+    timeScaleSigma: 1 
+    # maccormackStrength : used in semi-lagrangian MacCormack advection
+    # when LT div is activated. 0.6 is a good value. If ~1, can lead to
+    # high frequency artifacts.
+    maccormackStrength: 0.6
+    # sampleOutsideFluid : if true, allows particles in advection to 'land' inside
+    # obstacles. In general, we don't want that, so leave it as false to avoid 
+    # possible artifacts.
+    sampleOutsideFluid: false
+    # lr : learning rate. If using scientific notation, necessary to precise type
+    # for yaml->python cast.
+    lr: !!python/float 5e-5
+
+# numWorkers : number of parallel workers for dataloader. Set to 0 to allow PyTorch
+# to automatically manage loading.
+numWorkers: 3
+# If true, dataset is preprocessed and programs exists.
+# Preprocessing is automatic if no previous preproc is detected on current dataset.
+preprocOnly: false 
+# printTraining : Debug options for training.
+# Prints or shows validation dataset and compares net
+# output to GT.
+# Options: save (save figures), show (shows in windows), none
+printTraining: "show" 
+# shuffleTraining : Shuffles dataset
+shuffleTraining: true 
+# resume : resume training from checkpoint.
+resumeTraining: false

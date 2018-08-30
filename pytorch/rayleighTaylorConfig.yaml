@@ -1,0 +1,76 @@
+# Configuration file for buoyant simulation.
+# The program overwrites parameters from conf and mconf dicts found
+# in <modelDir> (where the trained model is) with parameters found here.
+# They just impact the physics of the problem but leave the architecture
+# untouched. 
+# This table is saved to disk, in <outputFolder>, at every iteration and
+# is loaded when restarting a sim.
+# To restart precise <outputFolder> and set restartSim to true.
+
+# res : Resolution of domain
+resX: 200
+resY: 800
+# restartSim : set to true to restart form checkpoint from outputFolder.
+restartSim: false
+# realTimePlot : set to true to plot results during simulation.
+realTimePlot: true
+# saveVTK : set to true to save results as structured VTK files
+# use Paraview to load those files.
+saveVTK: false
+# outputFolder : folder for storing results, checkpoints and config files
+outputFolder: "/data1/aalgua/data_training/rayleighTaylor_test_jacobi"
+# simMethod: choose convnet or jacobi
+simMethod: "convnet"
+# modelDir : location of trained model
+modelDir: "/data1/aalgua/data_training/model_divL2_5divLT_ScaleNet_New"
+# modelFilename : name of trained model
+modelFilename: "convModel"
+# dt : simualation timestep
+dt: 0.1
+# statIter : iterations frequency for output
+statIter: 100
+# maxIter : maximum number of simulation iterations
+maxIter: 20000
+# maccormackStrength : used in semi-lagrangian MacCormack advection
+# when LT div is activated. 0.6 is a good value. If ~1, can lead to
+# high frequency artifacts.
+maccormackStrength: 0.6
+# buoyancyScale : Buoyancy forces scale
+# gravityScale : Gravity forces scale
+# Note: Manta and FluidNet divide gravity forces into "gravity" and "buoyancy"
+# They represent the two terms arising from Boussinesq approximation
+# rho*g = rho_0*g + delta_rho*g
+#           (1)         (2)
+# rho_0 being the average density and delta_rho local difference of density
+# w.r.t average density.
+# Mantaflow calls (1) gravity and (2) buoyancy and allows for different g's 
+buoyancyScale: 0.1
+gravityScale: 0
+# Introduces a correcting factor in the denisty equation 
+# from "A splitting method for incompressible flows with variable
+# density based on a pressure Poisson equation" (Guermond, Salgado).
+# Not really tested... Recommendation is to leave it as false.
+correctScalar: false
+# viscosity : introduces a viscous term in moment equation.
+# Algortihm taken from the book "Fluid Simulation for Computer Graphics" by
+# Bridson
+viscosity: 0
+# operatingDensity : When applying buoyancy, buoyancyScale is multiplied
+# by (density(i,j) - operatingDensity)
+operatingDensity: 0.0
+# pTol : convergence criterion for Jacobi method
+pTol: 0.01
+# jacobiIter : maximum number of iterations for Jacobi method
+jacobiIter: 200
+# gravityVec : orientation of the gravity vector when buoyancy/gravity 
+# are present.
+gravityVec:
+    x:  0.0
+    y:  1.0
+    z:  0.0
+# Rayleigh Taylor parameters
+rho2: 1.0
+rho1: 0.0
+perturbThickness: 100
+perturbAmplitude : 0.01
+height: 0.97

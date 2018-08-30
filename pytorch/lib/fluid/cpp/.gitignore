@@ -3,3 +3,4 @@ advection_cpp*
 dist
 *.txt
 __pycache__
+fluidnet_cpp.egg-info

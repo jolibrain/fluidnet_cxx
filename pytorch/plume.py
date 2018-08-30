@@ -1,6 +1,6 @@
 import glob
 import argparse
-import json
+import yaml
 
 import torch
 import torch.autograd
@@ -26,38 +26,60 @@ import importlib.util
 import lib
 import lib.fluid as fluid
 
+# Usage python3 plume.py
+# Use python3 plume.py -h for more details
+
 #**************************** Load command line arguments *********************
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--simConf', help='JSON simulation config file',
-        default='plumeConfig.json')
-parser.add_argument('--defaultConf', help='JSON model config file',
-        default='config.json')
-parser.add_argument('--modelDir', help='NeuralNetwork model location')
-parser.add_argument('--modelFilename', help='model name')
-parser.add_argument('--outputFolder', help='Folder for sim output')
-parser.add_argument('--restartSim', help='Set to True to restart simulation from checkpoint.')
+parser = argparse.ArgumentParser(description='Buoyant plume simulation. \n'
+        'Read plumeConfig.yaml for more information', \
+        formatter_class= lib.SmartFormatter)
+parser.add_argument('--simConf',
+        default='plumeConfig.yaml',
+        help='R|Simulation yaml config file.\n'
+        'Overwrites parameters from trainingConf file.\n'
+        'Default: plumeConfig.yaml')
+parser.add_argument('--trainingConf',
+        default='config.yaml',
+        help='R|Training yaml config file.\n'
+        'Default: config.yaml')
+parser.add_argument('--modelDir',
+        help='R|Neural network model location.\n'
+        'Default: written in simConf file.')
+parser.add_argument('--modelFilename',
+        help='R|Model name.\n'
+        'Default: written in simConf file.')
+parser.add_argument('--outputFolder',
+        help='R|Folder for sim output.\n'
+        'Default: written in simConf file.')
+parser.add_argument('--restartSim', action='store_true', default=False,
+        help='R|Restarts simulation from checkpoint.\n'
+        'Default: written in simConf file.')
 
 arguments = parser.parse_args()
 
-# Loading a JSON object returns a dict
+# Loading a YAML object returns a dict
 with open(arguments.simConf, 'r') as f:
-    simConf = json.load(f)
-with open(arguments.defaultConf, 'r') as f:
-    conf = json.load(f)
+    simConf = yaml.load(f)
+with open(arguments.trainingConf, 'r') as f:
+    conf = yaml.load(f)
 
-restart_sim = arguments.restartSim or simConf['restartSim']
+if not argument.restartSim:
+    restart_sim = simConf['restartSim']
+else:
+    restart_sim = argument.restartSim
+
 folder = arguments.outputFolder or simConf['outputFolder']
 if (not glob.os.path.exists(folder)):
     glob.os.makedirs(folder)
 
-restart_config_file = glob.os.path.join('/', folder, 'configPlume.json')
+restart_config_file = glob.os.path.join('/', folder, 'plumeConfig.yaml')
 restart_state_file = glob.os.path.join('/', folder, 'restart.pth')
 if restart_sim:
-    # Check if configPlume.json exists in folder
-    assert glob.os.path.isfile(restart_config_file), 'JSON config file does not exists for restarting.'
+    # Check if configPlume.yaml exists in folder
+    assert glob.os.path.isfile(restart_config_file), 'YAML config file does not exists for restarting.'
     with open(restart_config_file) as f:
-        simConfig = json.load(f)
+        simConfig = yaml.load(f)
 
 conf['modelDir'] = arguments.modelDir or simConf['modelDir']
 assert (glob.os.path.exists(conf['modelDir'])), 'Directory ' + str(conf['modelDir']) + ' does not exists'
@@ -66,13 +88,12 @@ conf['modelDirname'] = conf['modelDir'] + '/' + conf['modelFilename']
 resume = False # For training, at inference set always to false
 
 
-#*********************************** Select the GPU ****************************
 print('Active CUDA Device: GPU', torch.cuda.current_device())
 print()
 path = conf['modelDir']
 path_list = path.split(glob.os.sep)
 saved_model_name = glob.os.path.join('/', *path_list, path_list[-1] + '_saved.py')
-temp_model = glob.os.path.join('lib', path_list[-2] + '_saved_simulate.py')
+temp_model = glob.os.path.join('lib', path_list[-1] + '_saved_simulate.py')
 copyfile(saved_model_name, temp_model)
 
 assert glob.os.path.isfile(temp_model), temp_model  + ' does not exits!'
@@ -106,7 +127,6 @@ try:
     #********************************** Create the model ***************************
     with torch.no_grad():
 
-        # Create model and print layers and params
         cuda = torch.device('cuda')
 
         net = model_saved.FluidNet(mconf, dropout=False)
@@ -147,7 +167,7 @@ try:
         #**************************** Initial conditions ***************************
 
         fluid.createPlumeBCs(batch_dict, rho1, plume_scale, rad)
-        #XXX: Create Box2D and Cylinders from JSON config file
+        #XXX: Create Box2D and Cylinders from YAML config file
         # Uncomment to create Cylinder or Box2D obstacles
         #fluid.createCylinder(batch_dict, centerX=0.5*resX,
         #                                 centerY=0.5*resY,
@@ -164,9 +184,9 @@ try:
             it = restart_dict['it']
             print('Restarting from checkpoint at it = ' + str(it))
 
-        # Create JSON file in output folder
+        # Create YAML file in output folder
         with open(restart_config_file, 'w') as outfile:
-                json.dump(simConf, outfile)
+                yaml.dump(simConf, outfile)
 
         # Print options for debug
         torch.set_printoptions(precision=1, edgeitems = 5)

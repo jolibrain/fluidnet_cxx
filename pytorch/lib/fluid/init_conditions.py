@@ -77,3 +77,38 @@ def createPlumeBCs(batch_dict, density_val, u_scale, rad):
     # batch_dict at output = {p, UDiv, flags, density, UBC,
     #                         UBCInvMask, densityBC, densityBCInvMask}
 
+def createRayleighTaylorBCs(batch_dict, mconf, rho1, rho2):
+
+    cuda = torch.device('cuda')
+    # batch_dict at input: {p, UDiv, flags, density}
+    assert len(batch_dict) == 4, "Batch must contain 4 tensors (p, UDiv, flags, density)"
+    UDiv = batch_dict['U']
+    flags = batch_dict['flags']
+
+    resX = UDiv.size(4)
+    resY = UDiv.size(3)
+
+    # Here, we just impose initial conditions.
+    # Upper layer rho2, vel = 0
+    # Lower layer rho1, vel = 0
+
+    X = torch.arange(0, resX, device=cuda).view(resX).expand((1,resY,resX))
+    Y = torch.arange(0, resY, device=cuda).view(resY, 1).expand((1,resY,resX))
+    coord = torch.cat((X,Y), dim=0).unsqueeze(0).unsqueeze(2)
+
+    # Atwood number
+    #A = ((1+rho2) - (1+rho1)) / ((1+rho2) + (1+rho1))
+    #print('Atwood number : ' + str(A))
+    #density = ((1-A) * torch.tanh(100*(coord[:,1]/resY - (0.85 - \
+    #                0.05*torch.cos(math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
+    thick = mconf['perturbThickness']
+    ampl = mconf['perturbAmplitude']
+    h = mconf['height']
+    density = 0.5*(rho2+rho1 + (rho2-rho1)*torch.tanh(thick*(coord[:,1]/resY - \
+            (h + ampl*torch.cos(2*math.pi*(coord[:,0]/resX)))))).unsqueeze(1)
+
+    batch_dict['density'] = density
+    batch_dict['flags'] = flags
+
+    # batch_dict at output = {p, UDiv, flags, density}
+

@@ -1,7 +1,7 @@
 import glob
 import sys
 import argparse
-import json
+import yaml
 
 import torch
 import torch.nn as nn
@@ -17,53 +17,112 @@ import importlib.util
 import lib
 import lib.fluid as fluid
 
-#********************************** Define Config ******************************
+# Parse arguments
+parser = argparse.ArgumentParser(description='Training script.', \
+        formatter_class= lib.SmartFormatter)
+parser.add_argument('--trainingConf',
+        default='config.yaml',
+        help='R|Training yaml config file.\n'
+        '  Default: config.yaml')
+parser.add_argument('--modelDir',
+        help='R|Output folder location for trained model.\n'
+        'When resuming, reads from this location.\n'
+        '  Default: written in trainingConf file.')
+parser.add_argument('--modelFilename',
+        help='R|Model name.\n'
+        '  Default: written in trainingConf file.')
+parser.add_argument('--dataDir',
+        help='R|Dataset location.\n'
+        '  Default: written in trainingConf file.')
+parser.add_argument('--resume', action="store_true", default=False,
+        help='R|Resumes training from checkpoint in modelDir.\n'
+        '  Default: written in trainingConf file.')
+parser.add_argument('--bsz', type=int,
+        help='R|Batch size for training.\n'
+        '  Default: written in trainingConf file.')
+parser.add_argument('--maxEpochs', type=int,
+        help='R|Maximum number training epochs.\n'
+        '  Default: written in trainingConf file.')
+parser.add_argument('--noShuffle', action="store_true", default=False,
+        help='R|Remove dataset shuffle when training.\n'
+        '  Default: written in trainingConf file.')
+parser.add_argument('--lr', type=float,
+        help='R|Learning rate.\n'
+        '  Default: written in trainingConf file.')
+parser.add_argument('--numWorkers', type=int,
+        help='R|Number of parallel workers for dataset loading.\n'
+        '  Default: written in trainingConf file.')
+parser.add_argument('--outMode', choices=('save', 'show', 'none'),
+        help='R|Training debug options. Prints or shows validation dataset.\n'
+        ' save = saves plots to disk \n'
+        ' show = shows plots in window during training \n'
+        ' none = do nothing \n'
+        '  Default: written in trainingConf file.')
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--defaultConf', help='JSON model config file',
-        default='config.json')
-parser.add_argument('--modelDir', help='NeuralNetwork model location')
-parser.add_argument('--modelFilename', help='model name')
-parser.add_argument('--dataDir', help='dataset location')
+
+# ************************** Check arguments *********************************
+
+print('Parsing and checking arguments')
 
 arguments = parser.parse_args()
-
-with open(arguments.defaultConf, 'r') as f:
-    conf = json.load(f)
+with open(arguments.trainingConf, 'r') as f:
+    conf = yaml.load(f)
 
 conf['dataDir'] = arguments.dataDir or conf['dataDir']
 conf['modelDir'] = arguments.modelDir or conf['modelDir']
 conf['modelFilename'] = arguments.modelFilename or conf['modelFilename']
 conf['modelDirname'] = conf['modelDir'] + '/' + conf['modelFilename']
 
-resume = conf['resumeTraining']
+# If options not defined in cmd line, go to config.yaml to find value.
+if not arguments.resume:
+    resume = conf['resumeTraining']
+else:
+    resume = arguments.resume
 
+# If options not defined in cmd line, go to config.yaml to find value.
+if arguments.outMode is None:
+    output_mode = conf['printTraining']
+    assert output_mode == 'save' or output_mode == 'show' or output_mode == 'none',\
+            'In config.yaml printTraining options are save, show or none.'
+else:
+    output_mode = arguments.outMode
+
+# If options not defined in cmd line, go to config.yaml to find value.
+if not arguments.noShuffle:
+    shuffle_training = conf['shuffleTraining']
+else:
+    shuffle_training = not arguments.noShuffle
+
+conf['shuffleTraining'] = not arguments.noShuffle
+
+# Preprocessing dataset message (will exit after preproc)
 if (conf['preprocOnly']):
     print('Running preprocessing only')
     resume = False
 
-#*********************************** Select the GPU ****************************
-
 print('Active CUDA Device: GPU', torch.cuda.current_device())
 
-tr = lib.FluidNetDataset(conf, 'tr', save_dt=4, resume=resume) # Training instance of custom Dataset
-te = lib.FluidNetDataset(conf, 'te', save_dt=4, resume=resume) # Test instance of custom Dataset
+# Define training and test datasets
+tr = lib.FluidNetDataset(conf, 'tr', save_dt=4, resume=resume)
+te = lib.FluidNetDataset(conf, 'te', save_dt=4, resume=resume)
 
 if (conf['preprocOnly']):
     sys.exit()
 
-# We create two conf files, general params and model params.
+# We create two conf dicts, general params and model params.
 conf, mconf = tr.createConfDict()
 
-# Create variables from conf dict. In case of restart, this ones will
-# prevail over existing conf. User can modify them in JSON config file
-num_workers = conf['numWorkers']
-batch_size = conf['batchSize']
-max_epochs = conf['maxEpochs']
-shuffle_training = conf['shuffleTraining']
-print_training = conf['printTraining'] == 'show' or conf['printTraining'] == 'save'
-save_or_show = conf['printTraining'] == 'save'
-lr = mconf['lr']
+# Separate some variables from conf dict. When resuming training, this ones will
+# overwrite saved conf (where model is saved).
+# User can modify them in YAML config file or in command line.
+num_workers = arguments.numWorkers or conf['numWorkers']
+batch_size = arguments.bsz or conf['batchSize']
+max_epochs = arguments.maxEpochs or conf['maxEpochs']
+print_training = output_mode == 'show' or output_mode == 'save'
+save_or_show = output_mode == 'save'
+lr = arguments.lr or mconf['lr']
+
+#******************************** Restarting training ***************************
 
 if resume:
     print()
@@ -86,9 +145,7 @@ if resume:
     path = conf['modelDir']
     path_list = path.split(glob.os.sep)
     saved_model_name = glob.os.path.join('/', *path_list, path_list[-1] + '_saved.py')
-    print(saved_model_name)
-    temp_model = glob.os.path.join('lib', path_list[-2] + '_saved_resume.py')
-    print(temp_model)
+    temp_model = glob.os.path.join('lib', path_list[-1] + '_saved_resume.py')
     copyfile(saved_model_name, temp_model)
 
     assert glob.os.path.isfile(temp_model), temp_model  + ' does not exits!'
@@ -113,7 +170,7 @@ try:
             torch.nn.init.kaiming_uniform_(m.weight)
 
     print('')
-    print('----- Model ------')
+    print('------------------- Model ----------------------------')
 
     # Create model and print layers and params
     if not resume:
@@ -274,6 +331,8 @@ try:
                 shuffled = False
             if not shuffle_training and training:
                 shuffled = False
+
+            # Print fields for debug
             if print_training and (not shuffled) and (batch_idx*len(data) in list_to_plot) \
                 and ((epoch-1) % 5 == 0):
                 print_list = [batch_idx*len(data), epoch]
@@ -438,7 +497,7 @@ try:
             else:
                 sys.stdout.write("Please respond with 'yes' or 'no'")
 
-    # Save dicts
+    # Save config dicts
     torch.save(conf, file_conf)
     torch.save(mconf, file_mconf)
 
