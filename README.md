@@ -119,18 +119,18 @@ python3 print_output.py data/model_pLoss_L2 convModel
 
 # Training options
 You can set the following options for training from the terminal command line:
-*```-h``` : displays help message
-*```--trainingConf``` : YAML config file for training. Default = config.yaml.
-*```--modelDir``` : Output folder location for trained model. When resuming, reads from this location.
-*```--modelFilename``` : Model name.
-*```--dataDir``` : Dataset location.
-*```--resume``` : Resumes training from checkpoint in ```modelDir```
-*```--bsz``` : Batch size for training.
-*```--maxEpochs``` : Maximum number training epochs.
-*```--noShuffle``` : Remove dataset shuffle when training.
-*```--lr``` : Learning rate.
-*```--numWorkers``` : Number of parallel workers for dataset loading.
-*```--outMode``` : Training debug options. Prints or shows validation dataset.
+* ```-h``` : displays help message
+* ```--trainingConf``` : YAML config file for training. Default = config.yaml.
+* ```--modelDir``` : Output folder location for trained model. When resuming, reads from this location.
+* ```--modelFilename``` : Model name.
+* ```--dataDir``` : Dataset location.
+* ```--resume``` : Resumes training from checkpoint in ```modelDir```
+* ```--bsz``` : Batch size for training.
+* ```--maxEpochs``` : Maximum number training epochs.
+* ```--noShuffle``` : Remove dataset shuffle when training.
+* ```--lr``` : Learning rate.
+* ```--numWorkers``` : Number of parallel workers for dataset loading.
+* ```--outMode``` : Training debug options. Prints or shows validation dataset.
         ```save```  = saves plots to disk
         ```show```  = shows plots in window during training
         ```none```  = do nothing
@@ -156,13 +156,13 @@ python3 plume.py --restartSim
 ```
 
 # Test options
-*```-h``` : displays help message
-*```--simConf``` : YAML config file for simulation. Default = plumeConfig.yaml.
-*```--trainingConf``` : YAML config file for training. Default = config.yaml.
-*```--modelDir``` : Trained model location.
-*```--modelFilename``` : Model name.
-*```--outputFolder``` : Location of output results.
-*```--restartSim``` : Restart simulation from checkpoint in ```<outputFolder>```.
+* ```-h``` : displays help message
+* ```--simConf``` : YAML config file for simulation. Default = plumeConfig.yaml.
+* ```--trainingConf``` : YAML config file for training. Default = config.yaml.
+* ```--modelDir``` : Trained model location.
+* ```--modelFilename``` : Model name.
+* ```--outputFolder``` : Location of output results.
+* ```--restartSim``` : Restart simulation from checkpoint in ```<outputFolder>```.
 
 Check [plumeConfig.yaml](pytorch/plumeConfig.yaml) to see how the configuation file for the simulation is organized.
 
