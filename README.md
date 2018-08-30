@@ -146,9 +146,9 @@ cd pytorch
 python3 plume.py --modelDir <modelDir> --modelFilename <modelFilename> --outputFolder <outputFolder>
 ```
 with:
-``` <modelDir>``` : folder with trained model.
-``` <modelFilename>``` : Trained model name.
-``` <outputFolder>``` : Folder for saving simulation results.
+* ``` <modelDir>``` : folder with trained model.
+* ``` <modelFilename>``` : Trained model name.
+* ``` <outputFolder>``` : Folder for saving simulation results.
 
 You can also stop the simulation (Ctrl+C) and restart it afterwards:
 ```
