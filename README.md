@@ -47,6 +47,7 @@ Coming soon...
 * FluidNet own Mantaflow implementation
 * PyVTK (pip install)
 * (Optional) Paraview
+* (Optional) OpenCV2
 
 ATen allows to write generic code that works on both devices.
 More information in ATen [repo](https://github.com/zdevito/ATen). It can be called from PyTorch, using its new extension-cpp.
