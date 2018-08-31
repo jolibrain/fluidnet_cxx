@@ -1,4 +1,4 @@
-# fluidnet_cxx: Accelerating Fluid Simulation with Convolutional Neural Networks. A PyTorch/ATen implementation.  
+# fluidnet_cxx: Accelerating Fluid Simulation with Convolutional Neural Networks. A PyTorch/ATen Implementation.  
 This repository is based on the Tompson et al. paper, [Accelerating Eulerian Fluid Simulation With Convolutional Networks, Jonathan Tompson, Kristofer Schlachter, Pablo Sprechmann, Ken Perlin](http://cims.nyu.edu/~schlacht/CNNFluids.htm) on the accelation of fluid simulations by embedding a neural network in an existing solver for pressure prediction, replacing an expensive pressure projection linked to a Poisson equation on the pressure, which is usually solved with iterative methods (PCG or Jacobi methods). We implemented our code with PyTorch, effectively replacing all the original Torch/Lua and C++/CUDA implementation of the inviscid, incompressible fluid solver (based on the open-source fluid simulator [Mantaflow](http://mantaflow.com/), aimed at the Computer Graphics community).
 Find the original FluidNet repository [here](https://github.com/google/FluidNet).
 
