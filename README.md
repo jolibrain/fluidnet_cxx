@@ -38,6 +38,7 @@ This work allows to compare both the code perfomace when run in a single GPU uni
     * Paraview post-processing tool (VTK files)
 
 ## Results
+Coming soon...
 
 ## Requirements
 * Python 3.X 
@@ -166,31 +167,35 @@ python3 plume.py --restartSim
 
 Check [plumeConfig.yaml](pytorch/plumeConfig.yaml) to see how the configuation file for the simulation is organized.
 
-## Modify NN architecture
+## Modifying the NN architecture
 
+If you want to try your own architecture, you only have to follow these simple rules:
+* Write your model in a separate script and save it inside ```pytorch/lib```.
+* Open ```model.py``` and import your own script as a module. Go to ```class FluidNet```
+  [here](https://github.com/AAlguacil/fluidnet_cxx/blob/d09c192641daeb42668bdf2b70cfc1f415944e98/pytorch/lib/model.py#L42).
+* Ideally, as with the Multi-Scale Net example, you should just have to precise the number of channels from the input,
+  and add your net forward pass as in the multicale example
+  [here](https://github.com/AAlguacil/fluidnet_cxx/blob/d09c192641daeb42668bdf2b70cfc1f415944e98/pytorch/lib/model.py#L175)
 
-
-
-#5. Extending the cpp code:
----------------
+## Extending the cpp code:
 
 The cpp code, written with ATen library, can be compiled, tested and run on its own.
-You will need [OpenCV2](https://opencv.org/opencv-2-4-8.html) to visualize output, as matplotlib is unfortunately not available!
+You will need [OpenCV2](https://opencv.org/opencv-2-4-8.html) to visualize output of the pressure and velocity fields, as matplotlib is unfortunately not available in cpp!
 
 **Test**
 
 First, generate the test data from FluidNet
-[Section 3. Limitations of the current system - Unit Testing](https://github.com/google/FluidNet#3-limitations-of-the-current-system) and set the location of your folder in:
+[Section 3. Limitations of the current system - Unit Testing](https://github.com/google/FluidNet#3-limitations-of-the-current-system) and write the location of your folder in:
 ```
 solver_cpp/test/test_fluid.cpp
 #define DATA <path_to_data>
 ```
-Then run the following commands:
+Run the following commands:
 ```
 cd solver_cpp/
 mkdir build_test
 cd build_test
-cmake .. -DFLUID_TEST=ON # Default is off is OFF
+cmake .. -DFLUID_TEST=ON # Default is OFF
 ./test/fluidnet_sim
 ```
 This will test every routine of the solver (advection, divergence calculation, velocity
@@ -205,7 +210,7 @@ FluidNet advection.
 cd solver_cpp/
 mkdir build
 cd build
-cmake .. -DFLUID_TEST=OFF # Default is off is OFF
+cmake .. -DFLUID_TEST=OFF # Default is OFF
 ./simulate/fluidnet_sim
 ```
 Output images will be written in ```build``` folder, and can be converted into gif using
