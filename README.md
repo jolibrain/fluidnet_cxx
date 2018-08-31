@@ -7,6 +7,7 @@ We have retaken the original FluidNet NN architecture and added different featur
 This work allows to compare both the code perfomace when run in a single GPU unit and the accuracy of this data-driven method in comparison with tradional mehtods (Jacobi) or other fluid simulation methods like Lattice Boltzmann Methods.
 
 ## Functionalities:
+* **NOTE: For the moment, only 2D simulations and training are supported.** 3D needs still some work.
 * Full eulerian (incompressible and inviscid) fluid simulator:
     * Momentum equation resolution using a splitting algorithm:
         * Advection of velocity + External forces
@@ -19,9 +20,6 @@ This work allows to compare both the code perfomace when run in a single GPU uni
     * Generation with FluidNet own Mantaflow sript.
     * Random insertion of objects and velocity emitters, as well as gravity forces.
     * Pre-processed into PyTorch objects
-* Models:
-    * FluidNet multi-resolution with own features.
-    * Deep MultiScale
 * Training:
     * Several options for loss function: 
         * MSE of pressure 
@@ -36,6 +34,11 @@ This work allows to compare both the code perfomace when run in a single GPU uni
 * Results visualization:
     * Matplotlib
     * Paraview post-processing tool (VTK files)
+
+# Models
+
+* Adapted FluidNet architecture
+* Deep MultiScale adpated from [Deep multi-scale video prediction beyond mean square error](https://arxiv.org/abs/1511.05440).
 
 ## Results
 Coming soon...
@@ -71,10 +74,12 @@ Follow these instructions from main directory:
 cd pytorch/lib/fluid/cpp
 python3 setup.py install # if you want to install it on local user, use --user
 ```
-4. Datatset: We use the same **2D dataset** as the original FluidNet [Section 1: Generating the data - Generating training data](https://github.com/google/FluidNet#1-generating-the-data) (generated with MantaFlow) for training our ConvNet.
-
 ## Training
 
+**Dataset**
+We use the same **2D dataset** as the original FluidNet [Section 1: Generating the data - Generating training data](https://github.com/google/FluidNet#1-generating-the-data) (generated with MantaFlow) for training our ConvNet.
+
+**Running the training**
 To train the model, go to pytorch folder: 
 ```
 cd pytorch
