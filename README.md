@@ -38,7 +38,7 @@ This work allows to compare both the code perfomace when run in a single GPU uni
 # Models
 
 * Adapted FluidNet architecture
-* Deep MultiScale adpated from [Deep multi-scale video prediction beyond mean square error](https://arxiv.org/abs/1511.05440).
+* Deep MultiScale adapted from [Deep multi-scale video prediction beyond mean square error](https://arxiv.org/abs/1511.05440).
 
 ## Results
 Coming soon...
