@@ -7,7 +7,7 @@ We have retaken the original FluidNet NN architecture and added different featur
 This work allows to compare both the code perfomace when run in a single GPU unit and the accuracy of this data-driven method in comparison with tradional mehtods (Jacobi) or other fluid simulation methods like Lattice Boltzmann Methods.
 
 ## Functionalities:
-* Equation : Full eulerian (incompressible and inviscid) fluid simulator:
+* Full eulerian (incompressible and inviscid) fluid simulator:
     * Momentum equation resolution using a splitting algorithm:
         * Advection of velocity + External forces
         * Enforcing of non-divergence of velocity constraint through Poisson equation resolution, resulting in a pressure gradient
