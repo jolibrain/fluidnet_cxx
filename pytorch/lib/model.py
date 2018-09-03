@@ -54,6 +54,7 @@ class FluidNet(nn.Module):
         self.scale = _ScaleNet(self.mconf)
         # Input channels = 3 (inDims, flags)
         # We add padding to make sure that Win = Wout and Hin = Hout with ker_size=3
+
         self.conv1 = torch.nn.Conv2d(self.inDims, 16, kernel_size=3, padding=1)
 
         self.modDown1 = torch.nn.AvgPool2d(kernel_size=2)
@@ -61,13 +62,14 @@ class FluidNet(nn.Module):
 
         self.convBank = _HiddenConvBlock(dropout)
 
-        #self.upscale1 = torch.nn.Upsample(scale_factor=2, mode='nearest')
-        #self.upscale2 = torch.nn.Upsample(scale_factor=4, mode='nearest')
+        self.upscale1 = torch.nn.Upsample(scale_factor=2, mode='bilinear')
+        self.upscale2 = torch.nn.Upsample(scale_factor=4, mode='bilinear')
 
         self.deconv1 = torch.nn.ConvTranspose2d(16, 16, kernel_size=2, stride=2)
         self.deconv2 = torch.nn.ConvTranspose2d(16, 16, kernel_size=4, stride=4)
 
-        self.conv2 = torch.nn.Conv2d(16*3, 16, kernel_size=1)
+        self.convAferUp = torch.nn.Conv2d(16, 16, kernel_size=1)
+        self.convAfterDeconv = torch.nn.Conv2d(3*16, 16, kernel_size=1)
 
         # Output channels = 1 (pressure)
         self.convOut = torch.nn.Conv2d(16, 1, kernel_size=1)
@@ -189,16 +191,16 @@ class FluidNet(nn.Module):
             x2 = self.convBank(x2)
 
             # Upsample banks 1 and 2 to bank 0 size and accumulate inputs
-            #x1 = self.upscale1(x1)
-            #x2 = self.upscale2(x2)
-            x1 = self.deconv1(x1)
-            x2 = self.deconv2(x2)
+            x1 = self.upscale1(x1)
+            x2 = self.upscale2(x2)
+            #x1 = self.deconv1(x1)
+            #x2 = self.deconv2(x2)
 
-            x = torch.cat((x0, x1, x2), dim=1)
-            #x = x0 + x1 + x2
+            #x = torch.cat((x0, x1, x2), dim=1)
+            x = x0 + x1 + x2
 
             # Apply last 2 convolutions
-            x = F.relu(self.conv2(x))
+            x = F.relu(self.convAferUp(x))
 
             # Output pressure (1 chan)
             p = self.convOut(x)

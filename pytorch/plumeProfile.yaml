@@ -8,29 +8,29 @@
 # To restart precise <outputFolder> and set restartSim to true.
 
 # res : Resolution of domain
-resX: 128
-resY: 128
+resX: 256
+resY: 256
 # restartSim : set to true to restart form checkpoint from outputFolder.
 restartSim: false
 # realTimePlot : set to true to plot results during simulation.
 realTimePlot: false
 # saveVTK : set to true to save results as structured VTK files
 # use Paraview to load those files.
-saveVTK: true
+saveVTK: false
 # outputFolder : folder for storing results, checkpoints and config files
-outputFolder: "/data1/aalgua/data_training/plume_jacobi_g01_dt01_u04"
+outputFolder: "/data1/aalgua/data_training/plume_test_jacobi_JSON"
 # simMethod: choose convnet or jacobi
-simMethod: "jacobi"
+simMethod: "convnet"
 # modelDir : location of trained model
-modelDir: "/data1/aalgua/data_training/model_divL2_5divLT_ScaleNet_New"
+modelDir: "/data1/aalgua/data_training/model_divL2_divLT_FluidNet"
 # modelFilename : name of trained model
 modelFilename: "convModel"
 # dt : simualation timestep
 dt: 0.1
 # statIter : iterations frequency for output
-statIter: 50
+statIter: 100
 # maxIter : maximum number of simulation iterations
-maxIter: 5000
+maxIter: 1000
 # maccormackStrength : used in semi-lagrangian MacCormack advection
 # when LT div is activated. 0.6 is a good value. If ~1, can lead to
 # high frequency artifacts.
@@ -44,7 +44,7 @@ maccormackStrength: 0.6
 # rho_0 being the average density and delta_rho local difference of density
 # w.r.t average density.
 # Mantaflow calls (1) gravity and (2) buoyancy and allows for different g's 
-buoyancyScale: 0.1 #0.25
+buoyancyScale: 0.25
 gravityScale: 0
 # Introduces a correcting factor in the denisty equation 
 # from "A splitting method for incompressible flows with variable
@@ -59,9 +59,9 @@ viscosity: 0
 # by (density(i,j) - operatingDensity)
 operatingDensity: 0.0
 # pTol : convergence criterion for Jacobi method
-pTol: 0.0
+pTol: 0.01
 # jacobiIter : maximum number of iterations for Jacobi method
-jacobiIter: 28
+jacobiIter: 100
 # gravityVec : orientation of the gravity vector when buoyancy/gravity 
 # are present.
 gravityVec:
@@ -71,6 +71,6 @@ gravityVec:
 # injectionDensity : density at buoyant plume inlet
 injectionDensity: 1.0
 # sourceRadius : radius of inlet zone w.r.t the center of x-axis
-sourceRadius: 0.15
+sourceRadius: 0.16
 # injectionVelocity : inlet velocity
-injectionVelocity: 0.4 #2.0
+injectionVelocity: 2.0

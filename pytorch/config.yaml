@@ -12,9 +12,9 @@ dataset: "output_current_model_sphere"
 # freqToFile : Epoch frequency for loss output to file/image saving.
 freqToFile: 5
 # maxEpochs : Maximum number of epochs
-maxEpochs: 400
+maxEpochs: 250
 # modelDir : Output folder for trained model and loss log.
-modelDir: "/data1/aalgua/data_training/model_divL2_TEST_JSON" 
+modelDir: "/data1/aalgua/data_training/model_divL2" 
 # modelFilename : Trained model name
 modelFilename: "convModel"  
 modelParam:
@@ -89,7 +89,7 @@ modelParam:
     sampleOutsideFluid: false
     # lr : learning rate. If using scientific notation, necessary to precise type
     # for yaml->python cast.
-    lr: !!python/float 5e-5
+    lr: !!python/float 1e-3
 
 # numWorkers : number of parallel workers for dataloader. Set to 0 to allow PyTorch
 # to automatically manage loading.
@@ -101,7 +101,7 @@ preprocOnly: false
 # Prints or shows validation dataset and compares net
 # output to GT.
 # Options: save (save figures), show (shows in windows), none
-printTraining: "show" 
+printTraining: "save" 
 # shuffleTraining : Shuffles dataset
 shuffleTraining: true 
 # resume : resume training from checkpoint.

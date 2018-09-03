@@ -26,6 +26,7 @@ import importlib.util
 import lib
 import lib.fluid as fluid
 
+import time
 # Usage python3 plume.py
 # Use python3 plume.py -h for more details
 
@@ -239,13 +240,17 @@ try:
                 #headwidth=headwidth, headlength=headlength,
                 color='black')
 
+        time_array = np.empty(1)
+        ptime_array = np.empty(1)
         # Main loop
         while (it < max_iter):
-            if (it < 200):
-                method = 'jacobi'
-            else:
-                method = 'convnet'
-            lib.simulate(conf, mconf, batch_dict, net, method)
+            if (it > 2):
+                t = time.process_time()
+            proj_time = lib.simulate(conf, mconf, batch_dict, net, method, profile=True)
+            if (it > 2):
+                elapsed_time = time.process_time() - t
+                time_array = np.append(time_array, [elapsed_time])
+                ptime_array = np.append(ptime_array, [proj_time])
             if (it% outIter == 0):
                 print("It = " + str(it))
                 tensor_div = fluid.velocityDivergence(batch_dict['U'].clone(),
@@ -393,6 +398,13 @@ try:
 
             # Update iterations
             it += 1
+
+        avg_sim_time = np.average(time_array[1:])
+        avg_p_time = np.average(ptime_array[1:])
+        print(time_array)
+        print(ptime_array)
+        print('Average iteration time: ' + str(avg_sim_time))
+        print('Average projection time: ' + str(avg_p_time))
 
 finally:
     # Properly deleting model_saved.py, even when ctrl+C

@@ -285,6 +285,10 @@ try:
                         cmap=my_map,
                         origin='lower',
                         interpolation='none')
+                    #ax_rho.contour(X, Y,
+                    #        rho[minY:maxY,minX:maxX], 5,
+                    #        colors='black',
+                    #        animated=True)
                     ax_rho.set_title('Density')
                     fig.colorbar(im0, cax=cax_rho, format='%.0e')
                     qx.set_UVC(img_velx[minY:maxY:skip,minX:maxX:skip],

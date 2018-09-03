@@ -1,4 +1,5 @@
 import torch
+import time
 import lib.fluid as fluid
 
 def setConstVals(batch_dict, p, U, flags, density):
@@ -25,7 +26,7 @@ def setConstVals(batch_dict, p, U, flags, density):
         density.add_(batch_dict['densityBC'])
         batch_dict['density'] = density.clone()
 
-def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
+def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False, profile=False):
     r"""Top level simulation loop.
 
     Arguments:
@@ -38,6 +39,7 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
         sim_method (string): Options are 'convnet' and 'jacobi'
         output_div (bool, optional): returns just before solving for pressure.
             i.e. leave the state as UDiv and pDiv (before substracting divergence)
+        profile (bool, optional): Benchmarks pressure projection step.
 
     """
     cuda = torch.device('cuda')
@@ -126,6 +128,8 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
     # Set the constant domain values.
     setConstVals(batch_dict, p, U, flags, density)
 
+    if profile:
+        t = time.process_time()
     if (sim_method == 'convnet'):
         # fprop the model to perform the pressure projection and velocity calculation.
         # Set wall BCs is performed inside the model, before and after the projection.
@@ -146,8 +150,12 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
                 max_iter=maxIter)
         fluid.velocityUpdate(pressure=p, U=U, flags=flags)
 
+
     if sim_method != 'convnet':
         U = fluid.setWallBcs(U, flags)
+    if profile:
+        elapsed_time = time.process_time() - t
+
     elif stick:
         fluid.setWallBcsStick(U, flags, flags_stick)
 
@@ -155,3 +163,6 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
     batch_dict['U'] = U
     batch_dict['density'] = density
     batch_dict['p'] = p
+
+    if profile:
+        return elapsed_time
