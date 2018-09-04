@@ -124,7 +124,7 @@ python3 print_output.py <modelDir> <modelFilename>
 python3 print_output.py data/model_pLoss_L2 convModel
 ```
 
-# Training options
+### Training options
 You can set the following options for training from the terminal command line:
 * ```-h``` : displays help message
 * ```--trainingConf``` : YAML config file for training. Default = config.yaml.
@@ -162,7 +162,7 @@ You can also stop the simulation (Ctrl+C) and restart it afterwards:
 python3 plume.py --restartSim
 ```
 
-# Test options
+### Test options
 * ```-h``` : displays help message
 * ```--simConf``` : YAML config file for simulation. Default = plumeConfig.yaml.
 * ```--trainingConf``` : YAML config file for training. Default = config.yaml.
