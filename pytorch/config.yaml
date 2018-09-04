@@ -34,8 +34,8 @@ modelParam:
     divL1Lambda: 0
     # MSE of long term divergence
     # If > 0, implements the Long Term divergence concept from FluidNet
-    divLongTermLambda: 0
-    # Time step: default simulation timestep. 
+    divLongTermLambda: 1
+    # Time step: default simulation timestep only when long term divergence is active. 
     dt: 0.1
     # buoyancyScale : Buoyancy forces scale
     # gravityScale : Gravity forces scale
@@ -96,7 +96,7 @@ modelParam:
 numWorkers: 3
 # If true, dataset is preprocessed and programs exists.
 # Preprocessing is automatic if no previous preproc is detected on current dataset.
-preprocOnly: false 
+preprocOriginalFluidNetDataOnly: false 
 # printTraining : Debug options for training.
 # Prints or shows validation dataset and compares net
 # output to GT.

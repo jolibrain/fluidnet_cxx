@@ -96,7 +96,7 @@ else:
 conf['shuffleTraining'] = not arguments.noShuffle
 
 # Preprocessing dataset message (will exit after preproc)
-if (conf['preprocOnly']):
+if (conf['preprocOriginalFluidNetDataOnly']):
     print('Running preprocessing only')
     resume = False
 
@@ -106,7 +106,7 @@ print('Active CUDA Device: GPU', torch.cuda.current_device())
 tr = lib.FluidNetDataset(conf, 'tr', save_dt=4, resume=resume)
 te = lib.FluidNetDataset(conf, 'te', save_dt=4, resume=resume)
 
-if (conf['preprocOnly']):
+if (conf['preprocOriginalFluidNetDataOnly']):
     sys.exit()
 
 # We create two conf dicts, general params and model params.
