@@ -64,10 +64,10 @@ with open(arguments.simConf, 'r') as f:
 with open(arguments.trainingConf, 'r') as f:
     conf = yaml.load(f)
 
-if not argument.restartSim:
+if not arguments.restartSim:
     restart_sim = simConf['restartSim']
 else:
-    restart_sim = argument.restartSim
+    restart_sim = arguments.restartSim
 
 folder = arguments.outputFolder or simConf['outputFolder']
 if (not glob.os.path.exists(folder)):
