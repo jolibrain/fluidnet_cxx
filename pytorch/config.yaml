@@ -48,6 +48,14 @@ modelParam:
     # Mantaflow calls (1) gravity and (2) buoyancy and allows for different g's 
     buoyancyScale: 0
     gravityScale: 0
+    # trainBuoyancyScale : This is the buoyancy scale to use when adding buoyancy.
+    # We apply it in a random cardinal direction (down, up, left, right).
+    trainBuoyancyScale: 1
+    trainGravityScale: 0
+    # trainBuoyancyProb : We add buoyancy to the training with this probability
+    # Note that this is only applied to the future frame divergence term.
+    trainBuoyancyProb: 0.5
+    trainGravityProb: 0.0
     # Introduces a correcting factor in the denisty equation 
     # from "A splitting method for incompressible flows with variable
     # density based on a pressure Poisson equation" (Guermond, Salgado).

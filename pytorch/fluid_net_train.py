@@ -281,6 +281,30 @@ try:
             # We calculate the divergence of a future frame.
             if (divLTLambda > 0):
                 base_dt = mconf['dt']
+                oldBuoyancy = mconf['buoyancyScale']
+                oldGravity = mconf['gravityScale']
+                batch_dict = {}
+
+                if torch.rand(1)[0] < mconf['trainBuoyancyProb']:
+                    mconf['buoyancyScale'] = mconf['trainBuoyancyScale']
+                if torch.rand(1)[0] < mconf['trainGravityProb']:
+                    mconf['gravityScale'] = mconf['trainGravityScale']
+
+                if mconf['buoyancyScale'] > 0 or mconf['gravityScale'] > 0:
+                    batch_dict['density'] = data[:,4].unsqueeze(1).contiguous()
+                    direction = torch.IntTensor(1).random_(1,2)
+                    mconf['gravityVec'] = {}
+                    mconf['gravityVec']['x'] = 0
+                    mconf['gravityVec']['y'] = 0
+                    mconf['gravityVec']['z'] = 0
+
+                    mconf['operatingDensity'] = 0
+                    if direction == 0:
+                        gravityDir = 'x'
+                    if direction == 1:
+                        gravityDir = 'y'
+
+                    mconf['gravityVec'][gravityDir] = torch.IntTensor(1).random_(0,1)*2 - 1
 
                 if mconf['timeScaleSigma'] > 0:
                     scale_dt = 0.2028 + torch.abs(torch.randn(1))[0] * \
@@ -291,7 +315,6 @@ try:
                 if torch.rand(1)[0] > mconf['longTermDivProbability']:
                     num_future_steps = mconf['longTermDivNumSteps'][1]
 
-                batch_dict = {}
                 batch_dict['p'] = out_p
                 batch_dict['U'] = out_U
                 batch_dict['flags'] = flags
