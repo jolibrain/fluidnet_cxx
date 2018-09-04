@@ -93,7 +93,7 @@ The dataset file structure should be located in ```<dataDir>``` folder with the 
         └── tr
 
 ```
-Precise the location of the dataset in ```config.yaml``` writing the folder location at ```dataDir``` (__use absolute paths__).
+Precise the location of the dataset in ```pytorch/config.yaml``` writing the folder location at ```dataDir``` (__use absolute paths__).
 Precise also ```dataset``` (name of the dataset), and output folder ```modelDir```where the trained model and loss logs will be stored and the model name ```modelFilename```.
 
 Run the training :
