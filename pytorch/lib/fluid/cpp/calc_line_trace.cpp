@@ -8,13 +8,13 @@ const float hit_margin = 1e-5;
 const float epsilon = 1e-12;
 
 void getPixelCenter(const T& pos, T& ix) {
-  AT_ASSERT(at::isFloatingType(infer_type(pos).scalarType()), "Error: getPixelCenter expects floating type tensor for pos argument");
-  AT_ASSERT(pos.size(1) == 3, "Pos must have 3 channels");
+  AT_ASSERTM(at::isFloatingType(infer_type(pos).scalarType()), "Error: getPixelCenter expects floating type tensor for pos argument");
+  AT_ASSERTM(pos.size(1) == 3, "Pos must have 3 channels");
   ix = pos.toType(at::kLong);
 }
 
 T isOutOfDomain(const T& pos, const T& flags) {
-  AT_ASSERT(at::isFloatingType(infer_type(pos).scalarType()), "Error: isOutOfDomain expects floating type tensor for pos argument");
+  AT_ASSERTM(at::isFloatingType(infer_type(pos).scalarType()), "Error: isOutOfDomain expects floating type tensor for pos argument");
   // Note: no need to make the difference between 2d and 3d as postion are intially
   // moved by 0.5. If pos is 2d, pos.z = 0.5 and the two last conditions will always
   // be false.
@@ -32,7 +32,7 @@ T isOutOfDomain(const T& pos, const T& flags) {
 // if pos is outOfDomain, we return false.
 T isBlockedCell(const T& pos, const T& flags) {
 
-  AT_ASSERT(at::isFloatingType(infer_type(pos).scalarType()), "Error: isBlockedCell expects floating type tensor for pos argument");
+  AT_ASSERTM(at::isFloatingType(infer_type(pos).scalarType()), "Error: isBlockedCell expects floating type tensor for pos argument");
 
   int bsz = pos.size(0);
   int d = pos.size(2);
@@ -152,7 +152,7 @@ T HitBoundingBox(const T& minB, const T& maxB,
 T calcRayBoxIntersection(const T& pos, const T& dt, const T& ctr,
                          const float hit_margin, const T& mask,  T& ipos) {
    
-  AT_ASSERT(hit_margin > 0, "Error: calcRayBoxIntersection hit_margin < 0");
+  AT_ASSERTM(hit_margin > 0, "Error: calcRayBoxIntersection hit_margin < 0");
   T box_min = ctr - 0.5 - hit_margin;
   T box_max = ctr + 0.5 + hit_margin;
 
@@ -175,16 +175,16 @@ T calcRayBorderIntersection(const T& pos, const T& next_pos,
                             const T& mOutDom,
                             T& ipos) {
 
-   AT_ASSERT(hit_margin > 0, "Error: calcRayBorderIntersection hit_margin < 0");
+   AT_ASSERTM(hit_margin > 0, "Error: calcRayBorderIntersection hit_margin < 0");
      
    // Here we only operate on source which are INSIDE the boundary
    // and target location OUTSIDE the boundary. Find a way to assert this.
    T maskAssertInside = isOutOfDomain(pos, flags);
-   AT_ASSERT(maskAssertInside.masked_select(mOutDom).
+   AT_ASSERTM(maskAssertInside.masked_select(mOutDom).
                 equal(mOutDom.masked_select(mOutDom).eq(0)), "Error: source location is already outside the domain!");
   
    T maskAssertOutside = isOutOfDomain(next_pos, flags);
-   AT_ASSERT(maskAssertOutside.masked_select(mOutDom).
+   AT_ASSERTM(maskAssertOutside.masked_select(mOutDom).
                  equal(mOutDom.masked_select(mOutDom)), "Error: target location is already outside the domain!");
 
    // Calculate the minimum step length to exit each face and then step that
@@ -341,7 +341,7 @@ void calcLineTrace(const T& pos, const T& delta, const T& flags,
       // Do some sanity checks.
       // The logic above should always put ipos back hit_margin inside the
       // simulation domain.
-      AT_ASSERT(isOutOfDomain(ipos, flags).masked_select(mOutDom).
+      AT_ASSERTM(isOutOfDomain(ipos, flags).masked_select(mOutDom).
            equal(mOutDom.masked_select(mOutDom).eq(0)), "Error: case 1 exited bounds!");
 
       isBlocked = isBlockedCell(ipos, flags).__and__(mOutDom);
@@ -360,7 +360,7 @@ void calcLineTrace(const T& pos, const T& delta, const T& flags,
     // Case 2. next_pos enters a blocked cell.
     {
       T mBlock = isBlockedCell(next_pos, flags).__and__(mCont);
-      AT_ASSERT(isBlockedCell(new_pos, flags).masked_select(mBlock).
+      AT_ASSERTM(isBlockedCell(new_pos, flags).masked_select(mBlock).
            equal(mBlock.masked_select(mBlock).eq(0)), "Error: Ray source is already in a blocked cell!");
       
       const uint32_t max_count = 4; 
@@ -378,7 +378,7 @@ void calcLineTrace(const T& pos, const T& delta, const T& flags,
                  zeros_like(countMask.masked_select(mBlock)))) {
           break;
         }
-       AT_ASSERT(count < max_count, "Error: Cannot find non-geometry point (infinite loop)!");
+       AT_ASSERTM(count < max_count, "Error: Cannot find non-geometry point (infinite loop)!");
        
        // Calculate the center of the blocker cell.
        T next_pos_ctr;
@@ -386,7 +386,7 @@ void calcLineTrace(const T& pos, const T& delta, const T& flags,
        getPixelCenter(next_pos, idx);
 
        next_pos_ctr = idx.toType(infer_type(pos)) + 0.5;
-       AT_ASSERT(isOutOfDomain(next_pos_ctr, flags).eq(0).masked_select(countMask).
+       AT_ASSERTM(isOutOfDomain(next_pos_ctr, flags).eq(0).masked_select(countMask).
            equal(countMask.masked_select(countMask)), "Error: Center of blocker cell is out of the domain!");
      
        T ipos;

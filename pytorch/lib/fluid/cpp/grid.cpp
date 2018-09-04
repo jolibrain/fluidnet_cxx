@@ -12,7 +12,7 @@ float getDx(at::Tensor self) {
 
 T interpol(const T& self, const T& pos) {
 
-  AT_ASSERT(pos.size(1) == 3, "Input pos must have 3 channels"); 
+  AT_ASSERTM(pos.size(1) == 3, "Input pos must have 3 channels"); 
 
   bool is3D = (self.size(2) > 1);
   int bsz = pos.size(0);
@@ -115,7 +115,7 @@ void interpol1DWithFluidTest(
 
 T interpolWithFluid(const T& self, const T& flags, const T& pos) {
 
-  AT_ASSERT(pos.size(1) == 3, "Input pos must have 3 channels");
+  AT_ASSERTM(pos.size(1) == 3, "Input pos must have 3 channels");
 
   bool is3D = (self.size(2) > 1);
   int bsz = pos.size(0);
@@ -434,7 +434,7 @@ T getAtMACZ(const T& self) {
 
 T interpolComponent(const T& self, const T& pos, int c) {
 
-  AT_ASSERT(pos.size(1) == 3, "Input pos must have 3 channels"); 
+  AT_ASSERTM(pos.size(1) == 3, "Input pos must have 3 channels"); 
 
   bool is3D = (self.size(2) > 1);
   int bsz = pos.size(0);
@@ -496,7 +496,7 @@ T interpolComponent(const T& self, const T& pos, int c) {
 }                           
 
 T curl(const T& self) {
-  AT_ASSERT(self.size(1) == 3, "Input velocity field must have 3 channels");
+  AT_ASSERTM(self.size(1) == 3, "Input velocity field must have 3 channels");
 
   int bsz = self.size(0);
   int d = self.size(2) ;
