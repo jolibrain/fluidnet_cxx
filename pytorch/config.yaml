@@ -96,7 +96,7 @@ modelParam:
 numWorkers: 3
 # If true, dataset is preprocessed and programs exists.
 # Preprocessing is automatic if no previous preproc is detected on current dataset.
-preprocOnly: false 
+preprocOriginalFluidNetDataOnly: false 
 # printTraining : Debug options for training.
 # Prints or shows validation dataset and compares net
 # output to GT.
