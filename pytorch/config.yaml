@@ -34,8 +34,8 @@ modelParam:
     divL1Lambda: 0
     # MSE of long term divergence
     # If > 0, implements the Long Term divergence concept from FluidNet
-    divLongTermLambda: 0
-    # Time step: default simulation timestep. 
+    divLongTermLambda: 1
+    # Time step: default simulation timestep only when long term divergence is active. 
     dt: 0.1
     # buoyancyScale : Buoyancy forces scale
     # gravityScale : Gravity forces scale
