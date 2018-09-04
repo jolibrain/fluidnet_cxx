@@ -60,7 +60,7 @@ To install this repo:
 
 1. Clone this repo:
 ```
-git clone git@github.com:AAlguacil/fluidnet_cxx.git
+https://github.com/jolibrain/fluidnet_cxx.git
 ```
 2. Install Pytorch 0.4:
 [Pytorch 0.4](https://pytorch.org/)
