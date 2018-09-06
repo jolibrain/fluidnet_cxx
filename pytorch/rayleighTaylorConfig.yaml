@@ -8,12 +8,12 @@
 # To restart precise <outputFolder> and set restartSim to true.
 
 # res : Resolution of domain
-resX: 200
-resY: 800
+resX: 128
+resY: 512
 # restartSim : set to true to restart form checkpoint from outputFolder.
 restartSim: false
 # realTimePlot : set to true to plot results during simulation.
-realTimePlot: true
+realTimePlot: false
 # saveVTK : set to true to save results as structured VTK files
 # use Paraview to load those files.
 saveVTK: false
@@ -26,9 +26,9 @@ modelDir: "/data1/aalgua/data_training/model_divL2_5divLT_ScaleNet_New"
 # modelFilename : name of trained model
 modelFilename: "convModel"
 # dt : simualation timestep
-dt: 0.1
+dt: 0.5
 # statIter : iterations frequency for output
-statIter: 100
+statIter: 10
 # maxIter : maximum number of simulation iterations
 maxIter: 20000
 # maccormackStrength : used in semi-lagrangian MacCormack advection
@@ -44,7 +44,7 @@ maccormackStrength: 0.6
 # rho_0 being the average density and delta_rho local difference of density
 # w.r.t average density.
 # Mantaflow calls (1) gravity and (2) buoyancy and allows for different g's 
-buoyancyScale: 0.1
+buoyancyScale: 1.
 gravityScale: 0
 # Introduces a correcting factor in the denisty equation 
 # from "A splitting method for incompressible flows with variable
@@ -59,7 +59,7 @@ viscosity: 0
 # by (density(i,j) - operatingDensity)
 operatingDensity: 0.0
 # pTol : convergence criterion for Jacobi method
-pTol: 0.01
+pTol: 0.0
 # jacobiIter : maximum number of iterations for Jacobi method
 jacobiIter: 200
 # gravityVec : orientation of the gravity vector when buoyancy/gravity 
@@ -69,8 +69,8 @@ gravityVec:
     y:  1.0
     z:  0.0
 # Rayleigh Taylor parameters
-rho2: 1.0
-rho1: 0.0
+rho2: 0.01
+rho1: -0.01
 perturbThickness: 100
 perturbAmplitude : 0.01
-height: 0.97
+height: 0.5

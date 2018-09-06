@@ -241,6 +241,10 @@ try:
 
         # Main loop
         while (it < max_iter):
+            #if it < 50:
+            #    method = 'jacobi'
+            #else:
+            method = mconf['simMethod']
             lib.simulate(conf, mconf, batch_dict, net, method)
             if (it% outIter == 0):
                 print("It = " + str(it))
@@ -340,10 +344,40 @@ try:
                         batch_dict['U'].clone(), \
                         batch_dict['flags'].clone())[0,0]
                     vel = fluid.getCentered(batch_dict['U'].clone())
-                    density = batch_dict['density'][0,0].clone()
-                    pressure = batch_dict['p'][0,0].clone()
+                    density = batch_dict['density'].clone()
+                    pressure = batch_dict['p'].clone()
+                    b = 1
+                    w = pressure.size(4)
+                    h = pressure.size(3)
+                    d = pressure.size(2)
+
+                    rho = density.narrow(4, 1, w-2).narrow(3, 1, h-2)
+                    rho = rho.clone().expand(b, 2, d, h-2, w-2)
+                    rho_m = rho.clone().expand(b, 2, d, h-2, w-2)
+                    rho_m[:,0] = density.narrow(4, 0, w-2).narrow(3, 1, h-2).squeeze(1)
+                    rho_m[:,1] = density.narrow(4, 1, w-2).narrow(3, 0, h-2).squeeze(1)
+                    gradRho_center = torch.zeros_like(vel)[:,0:2].contiguous()
+                    gradRho_faces = rho - rho_m
+                    gradRho_center[:,0:2,0,1:(h-1),1:(w-1)]= fluid.getCentered(gradRho_faces)[:,0:2,0]
+
+                    Pijk = pressure.narrow(4, 1, w-2).narrow(3, 1, h-2)
+                    Pijk = Pijk.clone().expand(b, 2, d, h-2, w-2)
+                    Pijk_m = Pijk.clone().expand(b, 2, d, h-2, w-2)
+                    Pijk_m[:,0] = pressure.narrow(4, 0, w-2).narrow(3, 1, h-2).squeeze(1)
+                    Pijk_m[:,1] = pressure.narrow(4, 1, w-2).narrow(3, 0, h-2).squeeze(1)
+                    gradP_center = torch.zeros_like(vel)[:,0:2].contiguous()
+                    gradP_faces = Pijk - Pijk_m
+                    gradP_center[:,0:2,0,1:(h-1),1:(w-1)]= fluid.getCentered(gradP_faces)[:,0:2,0]
+
+                    pressure = pressure[0,0]
+                    density = density[0,0]
+
                     velX = vel[0,0].clone()
                     velY = vel[0,1].clone()
+                    gradRhoX = gradRho_center[0,0].clone()
+                    gradRhoY = gradRho_center[0,1].clone()
+                    gradPX = gradP_center[0,0].clone()
+                    gradPY = gradP_center[0,1].clone()
                     flags = batch_dict['flags'][0,0].clone()
 
                     # Change shape form (D,H,W) to (W,H,D)
@@ -352,6 +386,10 @@ try:
                     pressure.transpose_(0,2).contiguous()
                     velX.transpose_(0,2).contiguous()
                     velY.transpose_(0,2).contiguous()
+                    gradRhoX.transpose_(0,2).contiguous()
+                    gradRhoY.transpose_(0,2).contiguous()
+                    gradPX.transpose_(0,2).contiguous()
+                    gradPY.transpose_(0,2).contiguous()
                     flags.transpose_(0,2).contiguous()
 
                     div_np = div.cpu().data.numpy()
@@ -375,13 +413,21 @@ try:
                     p = np.ascontiguousarray(pressure_masked[minX:maxX,minY:maxY])
                     velx = np.ascontiguousarray(velx_masked[minX:maxX,minY:maxY])
                     vely = np.ascontiguousarray(vely_masked[minX:maxX,minY:maxY])
+                    gradRhox = np.ascontiguousarray(gradRhoX.cpu().data.numpy()[minX:maxX,minY:maxY])
+                    gradRhoy = np.ascontiguousarray(gradRhoY.cpu().data.numpy()[minX:maxX,minY:maxY])
+                    gradPx = np.ascontiguousarray(gradPX.cpu().data.numpy()[minX:maxX,minY:maxY])
+                    gradPy = np.ascontiguousarray(gradPY.cpu().data.numpy()[minX:maxX,minY:maxY])
                     filename = folder + '/output_{0:05}'.format(it)
                     vtk.gridToVTK(filename, x, y, z, cellData = {
                         'density': rho,
                         'divergence': divergence,
                         'pressure' : p,
                         'ux' : velx,
-                        'uy' : vely
+                        'uy' : vely,
+                        'gradPx' : gradPx,
+                        'gradPy' : gradPy,
+                        'gradRhox' : gradRhox,
+                        'gradRhoy' : gradRhoy
                         })
 
                 restart_dict = {'batch_dict': batch_dict, 'it': it}

@@ -119,12 +119,20 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
         return
 
     if sim_method != 'convnet':
+        if 'periodic-x' in mconf and 'periodic-y' in mconf:
+            U_temp = U.clone()
         U = fluid.setWallBcs(U, flags)
+        if 'periodic-x' in mconf and 'periodic-y' in mconf:
+            if mconf['periodic-x']:
+                U[:,1,:,:,1] = U_temp[:,1,:,:,U.size(4)-1]
+            if mconf['periodic-y']:
+                U[:,0,:,1] = U_temp[:,0,:,U.size(3)-1]
     elif stick:
         fluid.setWallBcsStick(U, flags, flags_stick)
 
     # Set the constant domain values.
     setConstVals(batch_dict, p, U, flags, density)
+
 
     if (sim_method == 'convnet'):
         # fprop the model to perform the pressure projection and velocity calculation.
@@ -147,7 +155,14 @@ def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
         fluid.velocityUpdate(pressure=p, U=U, flags=flags)
 
     if sim_method != 'convnet':
+        if 'periodic-x' in mconf and 'periodic-y' in mconf:
+            U_temp = U.clone()
         U = fluid.setWallBcs(U, flags)
+        if 'periodic-x' in mconf and 'periodic-y' in mconf:
+            if mconf['periodic-x']:
+                U[:,1,:,:,1] = U_temp[:,1,:,:,U.size(4)-1]
+            if mconf['periodic-y']:
+                U[:,0,:,1] = U_temp[:,0,:,U.size(3)-1]
     elif stick:
         fluid.setWallBcsStick(U, flags, flags_stick)
 

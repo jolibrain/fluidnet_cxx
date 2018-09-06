@@ -75,6 +75,7 @@ if (not glob.os.path.exists(folder)):
 
 restart_config_file = glob.os.path.join('/', folder, 'rayleighTaylorConfig.yaml')
 restart_state_file = glob.os.path.join('/', folder, 'restart.pth')
+save_dist_file = glob.os.path.join('/', folder, 'growth.npy')
 save_rho_file = glob.os.path.join('/', folder, 'avg_density.npy')
 
 if restart_sim:
@@ -154,6 +155,9 @@ try:
         rho1 = mconf['rho1']
         rho2 = mconf['rho2']
 
+        mconf['periodic-y'] = True
+        mconf['periodic-x'] = False
+
         net = model_saved.FluidNet(mconf, dropout=False)
         if torch.cuda.is_available():
             net = net.cuda()
@@ -178,6 +182,7 @@ try:
         # File with average density
         if not restart_sim:
             avg_density = np.empty((0,2))
+            inst_dist = np.empty((0,2))
         else:
             avg_density = np.load(save_rho_file)
 
@@ -233,6 +238,24 @@ try:
 
         while (it < max_iter):
             lib.simulate(conf, mconf, batch_dict, net, method)
+            density = batch_dict['density'].clone()
+            center_X = resX // 2
+            rho_at_center = density[0,0,0,:, center_X]
+            h = density.size(3)
+            signChange = (rho_at_center[0:h-1] < 0) \
+                            .__and__(rho_at_center[1:h] > 0 )
+            idx_change = signChange.nonzero()
+            idx_change_p = idx_change + 1
+            rho_1 = rho_at_center[idx_change]
+            rho_2 = rho_at_center[idx_change+1]
+            m = rho_1 - rho_2
+            interpol = (rho_1/m)
+            distance = (idx_change.float() + interpol) - resY // 2
+            dt = mconf['dt']
+            inst_dist = np.append(inst_dist, [[it*dt, distance]],
+                    axis=0)
+            np.save(save_dist_file, inst_dist)
+
             if (it% outIter == 0):
                 print("It = " + str(it))
                 tensor_div = fluid.velocityDivergence(batch_dict['U'].clone(),
