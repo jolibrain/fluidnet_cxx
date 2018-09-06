@@ -60,7 +60,7 @@ To install this repo:
 
 1. Clone this repo:
 ```
-git clone git@github.com:AAlguacil/fluidnet_cxx.git
+https://github.com/jolibrain/fluidnet_cxx.git
 ```
 2. Install Pytorch 0.4:
 [Pytorch 0.4](https://pytorch.org/)
@@ -93,7 +93,7 @@ The dataset file structure should be located in ```<dataDir>``` folder with the 
         └── tr
 
 ```
-Precise the location of the dataset in ```config.yaml``` writing the folder location at ```dataDir``` (__use absolute paths__).
+Precise the location of the dataset in ```pytorch/config.yaml``` writing the folder location at ```dataDir``` (__use absolute paths__).
 Precise also ```dataset``` (name of the dataset), and output folder ```modelDir```where the trained model and loss logs will be stored and the model name ```modelFilename```.
 
 Run the training :
@@ -124,7 +124,7 @@ python3 print_output.py <modelDir> <modelFilename>
 python3 print_output.py data/model_pLoss_L2 convModel
 ```
 
-# Training options
+### Training options
 You can set the following options for training from the terminal command line:
 * ```-h``` : displays help message
 * ```--trainingConf``` : YAML config file for training. Default = config.yaml.
@@ -162,7 +162,7 @@ You can also stop the simulation (Ctrl+C) and restart it afterwards:
 python3 plume.py --restartSim
 ```
 
-# Test options
+### Test options
 * ```-h``` : displays help message
 * ```--simConf``` : YAML config file for simulation. Default = plumeConfig.yaml.
 * ```--trainingConf``` : YAML config file for training. Default = config.yaml.
