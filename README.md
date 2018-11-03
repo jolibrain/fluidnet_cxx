@@ -16,7 +16,9 @@ probably to a poor modelling of buoyant forces by the trained model.
 ![Alt text](figures/Animation_rho001.gif?raw=true "Plume simulation for Richardson number Ri=0.14. Left: CNN-resolved
 Poisson equation. Center: Jacobi method 28 iterations. Right: Jacobi method 100 iterations.")
 
-![Alt text](figures/GrowthRate.png "Growth Rate for different methods."){:height="20%"}
+<p align="center">
+  <img width="100" src="hfigures/GrowthRate.png">
+</p>
 
 ## Functionalities:
 * **NOTE: For the moment, only 2D simulations and training are supported.** 3D needs still some work.
