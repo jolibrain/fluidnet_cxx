@@ -17,7 +17,7 @@ probably to a poor modelling of buoyant forces by the trained model.
 Poisson equation. Center: Jacobi method 28 iterations. Right: Jacobi method 100 iterations.")
 
 <p align="center">
-  <img width="100" src="hfigures/GrowthRate.png">
+  <img width="250" src="figures/GrowthRate.png">
 </p>
 
 ## Functionalities:
