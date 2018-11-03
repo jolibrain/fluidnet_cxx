@@ -16,12 +16,14 @@ probably to a poor modelling of buoyant forces by the trained model.
 ![Alt text](figures/Animation_rho001.gif?raw=true "Plume simulation for Richardson number Ri=0.14. Left: CNN-resolved
 Poisson equation. Center: Jacobi method 28 iterations. Right: Jacobi method 100 iterations.")
 <p align="center">
-  Resolution with ConvNet     
-  Jacobi Method 28 iter       
+  Resolution with ConvNet |
+  Jacobi Method 28 iter | 
   Jacobi Method 100 iter
 </p>
 <p align="center">
   <img width="500" src="figures/GrowthRate.png">
+</p>
+<p align="center">
   Growth Rate of the plume's head for Ri=0.14
 </p>
 
