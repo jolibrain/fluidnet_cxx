@@ -41,7 +41,7 @@ Poisson equation. Center: Jacobi method 28 iterations. Right: Jacobi method 100 
     * Generation with FluidNet own Mantaflow sript.
     * Random insertion of objects and velocity emitters, as well as gravity forces.
     * Pre-processed into PyTorch objects
-* Trained datasets:
+* Pre-trained models:
     * An already trained model is available in [trained_models](trained_models)
 * Training:
     * Several options for loss function: 
