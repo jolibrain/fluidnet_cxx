@@ -22,7 +22,7 @@ outputFolder: "/path/to/output/folder"
 # simMethod: choose convnet or jacobi
 simMethod: "convnet"
 # modelDir : location of trained model
-modelDir: "/path/to/trained/model"
+modelDir: "../trained_models/ScaleNet_ShortTerm_LongTermLoss"
 # modelFilename : name of trained model
 modelFilename: "convModel"
 # dt : simualation timestep

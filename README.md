@@ -41,6 +41,8 @@ Poisson equation. Center: Jacobi method 28 iterations. Right: Jacobi method 100 
     * Generation with FluidNet own Mantaflow sript.
     * Random insertion of objects and velocity emitters, as well as gravity forces.
     * Pre-processed into PyTorch objects
+* Trained datasets:
+    * An already trained model is available in [trained_models](trained_models)
 * Training:
     * Several options for loss function: 
         * MSE of pressure 
@@ -51,6 +53,7 @@ Poisson equation. Center: Jacobi method 28 iterations. Right: Jacobi method 100 
 * Inference. Two test cases:
     * Buoyant plume.
     * Rayleigh Taylor instability.
+    * Launch your simulation with the available pre-trained model.
     * Comparison with Jacobi method resolution + LBM with open-sourced C++ library [Palabos](http://www.palabos.org/)
 * Results visualization:
     * Matplotlib
