@@ -11,7 +11,7 @@
 #   DATA
 #=========================================
 # dataDir : Dataset location
-dataDir: "/fdata/fluidnet" 
+dataDir: "/path/to/data/directory" 
 # dataset : Dataset name. Folder inside dataDir with training and testing scenes
 dataset: "output_current_model_sphere"
 # numWorkers : number of parallel workers for dataloader. Set to 0 to allow PyTorch
@@ -112,7 +112,7 @@ modelParam:
 #   OUTPUT
 #=========================================
 # modelDir : Output folder for trained model and loss log.
-modelDir: "/data1/aalgua/data_training/model_divL2_TEST_JSON" 
+modelDir: "/path/to/output/folder" 
 # modelFilename : Trained model name
 modelFilename: "convModel"  
 

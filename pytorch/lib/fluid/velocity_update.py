@@ -2,20 +2,19 @@ import torch
 
 from . import CellType
 
-# *****************************************************************************
-# velocityUpdate
-# *****************************************************************************
-
-# Calculate the pressure gradient and subtract it into (i.e. calculate
-# U' = U - grad(p)). Some care must be taken with handling boundary conditions.
-# This function mimics correctVelocity in Manta.
-# Velocity update is done IN-PLACE.
-#
-# input p - scalar pressure field.
-# input U - vel field (size(2) can be 2 or 3, indicating 2D / 3D)
-# input flags - input occupancy grid
 
 def velocityUpdate(pressure, U, flags):
+
+    r""" Calculate the pressure gradient and subtract it into (i.e. calculate
+    U' = U - grad(p)). Some care must be taken with handling boundary conditions.
+    This function mimics correctVelocity in Manta.
+    Velocity update is done IN-PLACE.
+
+    Arguments:
+        p (Tensor): scalar pressure field.
+        U (Tensor): velocity field (size(2) can be 2 or 3, indicating 2D / 3D)
+        flags (Tensor): input occupancy grid
+    """
     # Check arguments.
     assert U.dim() == 5 and flags.dim() == 5 and pressure.dim() == 5, \
                "Dimension mismatch"

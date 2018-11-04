@@ -3,20 +3,17 @@ import torch
 from . import CellType
 from . import getDx
 
-# *****************************************************************************
-# addBuoyancy
-# *****************************************************************************
-
-# Add buoyancy force. AddBuoyancy has a dt term.
-# Note: Buoyancy is added IN-PLACE.
-#
-# @input U - vel field (size(2) can be 2 or 3, indicating 2D / 3D)
-# @input flags - input occupancy grid
-# @input density - scalar density grid.
-# @input gravity - 3D vector indicating direction of gravity.
-# @input dt - scalar timestep.
-
 def addBuoyancy(U, flags, density, gravity, rho_star, dt):
+    r"""Add buoyancy force.
+    Arguments:
+        U (Tensor): velocity field (size(2) can be 2 or 3, indicating 2D / 3D)
+        flags (Tensor): input occupancy grid.
+        density (Tensor): scalar density grid.
+        gravity (Tensor): 3D vector indicating direction of gravity.
+        dt (float): scalar timestep.
+    Output:
+        U (Tensor): Output velocity
+    """
     cuda = torch.device('cuda')
     # Argument check
     assert U.dim() == 5 and flags.dim() == 5 and density.dim() == 5,\
@@ -122,16 +119,17 @@ def addBuoyancy(U, flags, density, gravity, rho_star, dt):
 # addGravity
 # *****************************************************************************
 
-# Add gravity force. It has a dt term.
-# Note: gravity is added IN-PLACE.
-#
-# @input U - vel field (size(2) can be 2 or 3, indicating 2D / 3D)
-# @input flags - input occupancy grid
-# @input gravity - 3D vector indicating direction of gravity.
-# @input dt - scalar timestep.
-
 def addGravity(U, flags, gravity, dt):
+    r"""Add gravity force.
 
+    Arguments:
+        U (Tensor): velocity field (size(2) can be 2 or 3, indicating 2D / 3D)
+        flags (Tensor): input occupancy grid.
+        gravity (Tensor): 3D vector indicating direction of gravity.
+        dt (float): scalar timestep.
+    Output:
+        U (Tensor): Output velocity
+    """
     cuda = torch.device('cuda')
     # Argument check
     assert U.dim() == 5 and flags.dim() == 5, "Dimension mismatch"

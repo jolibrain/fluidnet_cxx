@@ -1,4 +1,7 @@
 from enum import IntEnum
+
+# We use the same convention as Mantaflow and FluidNet
+
 class CellType(IntEnum):
     TypeNone = 0
     TypeFluid = 1
