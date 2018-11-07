@@ -2,6 +2,14 @@ import torch
 import math
 
 def createPlumeBCs(batch_dict, density_val, u_scale, rad):
+    r"""Creates masks to enforce an inlet at the domain bottom wall.
+    Modifies batch_dict inplace.
+    Arguments:
+        batch_dict (dict): Input tensors (p, UDiv, flags, density)
+        density_val (float): Inlet density.
+        u_scale (float); Inlet velocity.
+        rad (float): radius of inlet circle (centered around midpoint of wall)
+    """
 
     cuda = torch.device('cuda')
     # batch_dict at input: {p, UDiv, flags, density}
@@ -78,6 +86,15 @@ def createPlumeBCs(batch_dict, density_val, u_scale, rad):
     #                         UBCInvMask, densityBC, densityBCInvMask}
 
 def createRayleighTaylorBCs(batch_dict, mconf, rho1, rho2):
+    r"""Creates masks to enforce a Rayleigh-Taylor instability initial conditions.
+    Top fluid has a density rho1 and lower one rho2. rho1 > rho2 to trigger instability.
+    Modifies batch_dict inplace.
+    Arguments:
+        batch_dict (dict): Input tensors (p, UDiv, flags, density)
+        mconf (dict): configuration dict (to set thickness and amplitude of interface).
+        rho1 (float): Top fluid density.
+        rho2 (float): Lower fluid density.
+    """
 
     cuda = torch.device('cuda')
     # batch_dict at input: {p, UDiv, flags, density}

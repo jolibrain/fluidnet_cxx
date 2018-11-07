@@ -18,11 +18,11 @@ realTimePlot: true
 # use Paraview to load those files.
 saveVTK: false
 # outputFolder : folder for storing results, checkpoints and config files
-outputFolder: "/data1/aalgua/data_training/plume_TEST_dt05_g1_v01"
+outputFolder: "/path/to/output/folder"
 # simMethod: choose convnet or jacobi
 simMethod: "convnet"
 # modelDir : location of trained model
-modelDir: "/data1/aalgua/data_training/model_divL2_5divLT_ScaleNet_New"
+modelDir: "../trained_models/ScaleNet_ShortTerm_LongTermLoss"
 # modelFilename : name of trained model
 modelFilename: "convModel"
 # dt : simualation timestep

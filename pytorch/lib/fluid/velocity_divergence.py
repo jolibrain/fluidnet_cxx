@@ -1,18 +1,16 @@
 import torch
 from . import CellType
 
-# *****************************************************************************
-# velocityDivergence
-# *****************************************************************************
-
-# Calculate the velocity divergence (with boundary cond modifications). This is
-# essentially a replica of makeRhs in Manta and FluidNet.
-#
-# input U - input vel field (size(2) can be 2 or 3, indicating 2D / 3D)
-# input flags - input occupancy grid
-# output UDiv - output divergence (scalar field).
-
 def velocityDivergence(U, flags):
+    r""" Calculates the velocity divergence (with boundary cond modifications). This is
+    essentially a replica of makeRhs in Manta and FluidNet.
+
+    Arguments:
+        U (Tensor): input vel field (size(2) can be 2 or 3, indicating 2D / 3D)
+        flags (Tensor): input occupancy grid
+    Output:
+        UDiv (Tensor) : output divergence (scalar field).
+    """
     # Check sizes
     divergence = torch.zeros_like(flags).type(U.type())
     assert (U.dim() == 5 and flags.dim() == 5 and divergence.dim() == 5), \

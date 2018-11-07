@@ -1,5 +1,5 @@
 import torch
-
+# Some utils for printing to VTK Tensors
 def getDx(self):
     grid_size_max = max(max(self.size(2), self.size(3)), self.size(4))
     return (1.0 / grid_size_max)
