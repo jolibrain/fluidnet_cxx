@@ -3,6 +3,13 @@ import torch
 from . import CellType
 
 def emptyDomain(flags, boundary_width = 1):
+    r"""Sets all inner cells to Fluid Type flag and domain border to Obstacle Type.
+    Use this to initialize cleanly the flag Tensor
+    Arguments:
+        flags (Tensor): Input flags grid (modified inplace)
+        boundary_width (int, optional): Set width of border wall. Default set to 1.
+    """
+
     cuda = torch.device('cuda')
     assert boundary_width > 0, 'Boundary width must be greater than zero!'
     assert flags.dim() == 5, 'Flags tensor should be 5D'

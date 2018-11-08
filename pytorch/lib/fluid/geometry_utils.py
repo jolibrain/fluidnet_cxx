@@ -2,6 +2,15 @@ import torch
 from . import CellType
 
 def createCylinder(batch_dict, centerX, centerY, radius):
+    r"""Adds (inplace) a cylinder to the flags tensor in input batch.
+
+    Arguments:
+        batch_dict (dict): Input batch of tensor.
+        centerX (float): X-coordinate of cylinder center.
+        centerY (float): Y-coordinate of cylinder center.
+        radius (float): Radius of cylinder.
+
+    """
     cuda = torch.device('cuda')
     assert 'flags' in batch_dict, 'Error: flags key is not in batch dict'
     flags = batch_dict['flags']
@@ -23,6 +32,16 @@ def createCylinder(batch_dict, centerX, centerY, radius):
     batch_dict['flags'] = flags
 
 def createBox2D(batch_dict, x0, x1, y0, y1):
+    r"""Adds (inplace) a 2D Box to the flags tensor in input batch.
+
+    Arguments:
+        batch_dict (dict): Input batch of tensor.
+        x0 (float): bottom-left x-coordinate.
+        y0 (float): bottom-left y-coordinate.
+        x1 (float): upper-right x-coordinate.
+        y1 (float): upper-right y-coordinate.
+
+    """
     cuda = torch.device('cuda')
     assert 'flags' in batch_dict, 'Error: flags key is not in batch dict'
     flags = batch_dict['flags']

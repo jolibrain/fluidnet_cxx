@@ -6,6 +6,27 @@ We have retaken the original FluidNet NN architecture and added different featur
 
 This work allows to compare both the code perfomace when run in a single GPU unit and the accuracy of this data-driven method in comparison with tradional mehtods (Jacobi) or other fluid simulation methods like Lattice Boltzmann Methods.
 
+## Results
+
+Simulations of a buoyancy-driven plume flow are performed with different methods for the Poisson equation resolution.
+An inlet is placed at the bottom of the domain, where a lighter fluid (with density rho0) is injected with velocity v0
+into a quiescent heavier fluid. Results show that some work is still needed to predict a correct plume growth rate, due
+probably to a poor modelling of buoyant forces by the trained model.
+
+![Alt text](figures/Animation_rho001.gif?raw=true "Plume simulation for Richardson number Ri=0.14. Left: CNN-resolved
+Poisson equation. Center: Jacobi method 28 iterations. Right: Jacobi method 100 iterations.")
+<p align="center">
+  Resolution with ConvNet |
+  Jacobi Method 28 iter | 
+  Jacobi Method 100 iter
+</p>
+<p align="center">
+  <img width="500" src="figures/GrowthRate.png">
+</p>
+<p align="center">
+  Growth Rate of the plume's head for Ri=0.14
+</p>
+
 ## Functionalities:
 * **NOTE: For the moment, only 2D simulations and training are supported.** 3D needs still some work.
 * Full eulerian (incompressible and inviscid) fluid simulator:
@@ -20,6 +41,8 @@ This work allows to compare both the code perfomace when run in a single GPU uni
     * Generation with FluidNet own Mantaflow sript.
     * Random insertion of objects and velocity emitters, as well as gravity forces.
     * Pre-processed into PyTorch objects
+* Pre-trained models:
+    * An already trained model is available in [trained_models](trained_models)
 * Training:
     * Several options for loss function: 
         * MSE of pressure 
@@ -30,6 +53,7 @@ This work allows to compare both the code perfomace when run in a single GPU uni
 * Inference. Two test cases:
     * Buoyant plume.
     * Rayleigh Taylor instability.
+    * Launch your simulation with the available pre-trained model.
     * Comparison with Jacobi method resolution + LBM with open-sourced C++ library [Palabos](http://www.palabos.org/)
 * Results visualization:
     * Matplotlib
@@ -39,9 +63,6 @@ This work allows to compare both the code perfomace when run in a single GPU uni
 
 * Adapted FluidNet architecture
 * Deep MultiScale adapted from [Deep multi-scale video prediction beyond mean square error](https://arxiv.org/abs/1511.05440).
-
-## Results
-Coming soon...
 
 ## Requirements
 * Python 3.X 

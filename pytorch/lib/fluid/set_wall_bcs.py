@@ -2,6 +2,14 @@ import torch
 from . import CellType
 
 def setWallBcs(U, flags):
+    r"""Sets velocity slip BCs in walls.
+
+    Arguments:
+        U (Tensor): Input velocity.
+        flags (Tensor): Input occupancy grid.
+    Output:
+        U (Tensor): Output velocity (with enforced BCs).
+    """
     cuda = torch.device('cuda')
     assert (U.dim() == 5 and flags.dim() == 5), 'Dimension mismatch'
     assert flags.size(1) == 1, 'flags is not a scalar'

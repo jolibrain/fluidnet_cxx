@@ -2,21 +2,18 @@ import torch
 
 from . import CellType
 
-# *****************************************************************************
-# addViscosity
-# *****************************************************************************
-
 # ******WARNING********: ONLY IN 2D
-# Adds viscosity to velocity field.
-# Velocity update is done IN-PLACE.
-#
-# input dt - time step (in seconds)
-# input U - vel field (size(2) can be 2 or 3, indicating 2D / 3D)
-# input flags - input occupancy grid
-# input viscosity - viscosity
 
 def addViscosity(dt, U, flags, viscosity):
     # Check arguments.
+    r"""Adds viscosity to velocity field.
+    Velocity update is done IN-PLACE.
+
+    Arguments:
+        p (Tensor): scalar pressure field.
+        U (Tensor): velocity field (size(2) can be 2 or 3, indicating 2D / 3D)
+        flags (Tensor): input occupancy grid
+    """
     assert U.dim() == 5 and flags.dim() == 5, "Dimension mismatch"
     assert flags.size(1) == 1, "flags is not scalar"
     b = flags.size(0)
