@@ -10,6 +10,7 @@ import torch.optim as optim
 import torch.utils.data
 
 import numpy as np
+import random
 import glob
 from shutil import copyfile
 import importlib.util
@@ -261,6 +262,10 @@ try:
             #       U          |    1:3    |    1:4
             #       density    |    3      |    4
 
+            is3D = data.size(1) == 6
+            assert (is3D and data.size(1) == 6) or (not is3D and data.size(1) == 5), "Data must have \
+                    5 input chan for 2D, 6 input chan for 3D"
+
             # Run the model forward
             flags = data[:,3].unsqueeze(1).contiguous()
             out_p, out_U = net(data)
@@ -280,14 +285,60 @@ try:
 
             # We calculate the divergence of a future frame.
             if (divLTLambda > 0):
+                # Check if additional buoyancy or gravity is added to future frames.
+                # Adding Buoyancy means adding a source term in the momentum equation, of
+                # the type f = delta_rho*g and rho = rho_0 + delta_rho (constant term + fluctuation)
+                # with rho' << rho_0
+                # Adding gravity: source of the type f = rho_0*g
+                # Source term is a vector (direction and magnitude).
+
+                oldBuoyancyScale = mconf['buoyancyScale']
+                # rand(1) is an uniform dist on the interval [0,1)
+                if torch.rand(1)[0] < mconf['trainBuoyancyProb']:
+                    # Add buoyancy to this batch (only in the long term frames)
+                    mconf['buoyancyScale'] = mconf['trainBuoyancyScale']
+
+                oldGravityScale = mconf['gravityScale']
+                # rand(1) is an uniform dist on the interval [0,1)
+                if torch.rand(1)[0] < mconf['trainGravityProb']:
+                    # Add gravity to this batch (only in the long term frames)
+                    mconf['gravityScale'] = mconf['trainGravityScale']
+
+                oldGravity = mconf['gravityVec']
+                if mconf['buoyancyScale'] > 0 or mconf['gravityScale'] > 0:
+                    # Set to 0 gravity vector (direction of gravity)
+                    mconf['gravityVec']['x'] = 0
+                    mconf['gravityVec']['y'] = 0
+                    mconf['gravityVec']['z'] = 0
+
+                    # Chose randomly one of three cardinal directions and set random + or - dir
+                    card_dir = 0
+                    if is3D:
+                        card_dir = random.randint(0,2)
+                    else:
+                        card_dir = random.randint(0,1)
+
+                    updown = random.randint(0,1) * 2 - 1
+                    if card_dir == 0:
+                        mconf['gravityVec']['x'] = updown
+                    elif card_dir == 1:
+                        mconf['gravityVec']['y'] = updown
+                    elif card_dir == 2:
+                        mconf['gravityVec']['z'] = updown
+
                 base_dt = mconf['dt']
 
                 if mconf['timeScaleSigma'] > 0:
+                    # FluidNet: randn() returns normal distribution with mean 0 and var 1.
+                    # The mean of abs(randn) ~= 0.7972, hence the 0.2028 value below.
                     scale_dt = 0.2028 + torch.abs(torch.randn(1))[0] * \
                             mconf['timeScaleSigma']
                     mconf['dt'] = base_dt * scale_dt
 
                 num_future_steps = mconf['longTermDivNumSteps'][0]
+                # rand(1) is an uniform dist on the interval [0,1)
+                # longTermDivProbability is the prob that longTermDivNumSteps[0] is taken.
+                # otherwise, longTermDivNumSteps[1] is taken with prob 1 - longTermDivProbability
                 if torch.rand(1)[0] > mconf['longTermDivProbability']:
                     num_future_steps = mconf['longTermDivNumSteps'][1]
 
@@ -296,6 +347,9 @@ try:
                 batch_dict['U'] = out_U
                 batch_dict['flags'] = flags
 
+                # Set the simulation forward n steps (using model, no grad calculation),
+                # but on the last do not perform a pressure projection.
+                # We then input last state to model with grad calculation and add to global loss.
                 with torch.no_grad():
                     for i in range(0, num_future_steps):
                         output_div = (i == num_future_steps)

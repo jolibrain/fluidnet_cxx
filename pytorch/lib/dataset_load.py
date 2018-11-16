@@ -17,7 +17,7 @@ class FluidNetDataset(Dataset):
         self.save_dt = save_dt
         self.data_dir = conf['dataDir']
         self.dataset = conf['dataset']
-        self.n_threads = pr_n_threads # Num of threads to preprocess form .bin to .pt
+        self.n_threads = pr_n_threads # Num of threads to preprocess from .bin to .pt
 
         self.base_dir = self._get_base_dir(conf['dataDir'])
         self.scenes_folders = sorted(glob.os.listdir(self.base_dir))
@@ -28,8 +28,10 @@ class FluidNetDataset(Dataset):
         self.scene_0 = int(self.scenes_folders[0])
 
         # Check how many timesteps per scene there are.
-        self.step_per_scene = len(glob.glob(glob.os.path.join(self.base_dir, \
-                                  self.scenes_folders[0], '*[0-9].bin')))
+        #self.step_per_scene = len(glob.glob(glob.os.path.join(self.base_dir, \
+        #                          self.scenes_folders[0], '*[0-9].bin')))
+        # TODO (Remove this): Hard-coded (there are 64 steps per scene)
+        self.step_per_scene = 64
 
         self.pr_loader = loadMantaFile
         self.loader = torch.load
