@@ -61,9 +61,6 @@ class FluidNet(nn.Module):
 
         self.convBank = _HiddenConvBlock(dropout=False)
 
-        self.upscale1 = torch.nn.Upsample(scale_factor=2, mode='nearest')
-        self.upscale2 = torch.nn.Upsample(scale_factor=4, mode='nearest')
-
         #self.deconv1 = torch.nn.ConvTranspose2d(16, 16, kernel_size=2, stride=2)
         #self.deconv2 = torch.nn.ConvTranspose2d(16, 16, kernel_size=4, stride=4)
 
@@ -190,8 +187,12 @@ class FluidNet(nn.Module):
             x2 = self.convBank(x2)
 
             # Upsample banks 1 and 2 to bank 0 size and accumulate inputs
-            x1 = self.upscale1(x1)
-            x2 = self.upscale2(x2)
+
+            #x1 = self.upscale1(x1)
+            #x2 = self.upscale2(x2)
+
+            x1 = F.interpolate(x1, scale_factor=2)
+            x2 = F.interpolate(x2, scale_factor=4)
             #x1 = self.deconv1(x1)
             #x2 = self.deconv2(x2)
 

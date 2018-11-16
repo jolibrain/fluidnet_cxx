@@ -11,7 +11,7 @@
 #   DATA
 #=========================================
 # dataDir : Dataset location
-dataDir: "/path/to/data/directory" 
+dataDir: "/path/to/data/dir" 
 # dataset : Dataset name. Folder inside dataDir with training and testing scenes
 dataset: "output_current_model_sphere"
 # numWorkers : number of parallel workers for dataloader. Set to 0 to allow PyTorch
@@ -19,16 +19,38 @@ dataset: "output_current_model_sphere"
 numWorkers: 3
 # If true, dataset is preprocessed and programs exists.
 # Preprocessing is automatic if no previous preproc is detected on current dataset.
-preprocOnly: false 
+preprocOriginalFluidNetDataOnly: false 
 # shuffleTraining : Shuffles dataset
 shuffleTraining: true 
 
 #=========================================
+#   OUTPUT
+#=========================================
+# modelDir : Output folder for trained model and loss log.
+modelDir: "/path/to/output" 
+# modelFilename : Trained model name
+modelFilename: "convModel"  
+
+#=========================================
+#   TRAINING MONITORING
+#=========================================
+
+# freqToFile : Epoch frequency for loss output to file/image saving.
+freqToFile: 5
+# printTraining : Debug options for training.
+# Prints or shows validation dataset and compares net
+# output to GT.
+# Options: save (save figures), show (shows in windows), none
+printTraining: "save" 
+
+#=========================================
 #   TRAINING PARAMETER
 #=========================================
-batchSize: 128
+batchSize: 64
 # maxEpochs : Maximum number of epochs
 maxEpochs: 400
+# resume : resume training from checkpoint.
+resumeTraining: false
 modelParam:
     # model : options ('FluidNet', 'ScaleNet')
     #   -FluidNet : uses the architecture found in lib/model.py (based on FluidNet)
@@ -54,7 +76,7 @@ modelParam:
     divL1Lambda: 0
     # MSE of long term divergence
     # If > 0, implements the Long Term divergence concept from FluidNet
-    divLongTermLambda: 0
+    divLongTermLambda: 1
     # longTermDivNumSteps : We want to measure what the divergence is after
     # a set number of steps for each training and test sample. Set table
     # to nil to disable, (or set longTermDivLambda to 0).
@@ -72,11 +94,14 @@ modelParam:
     # normalizeInputThreshold : don't normalize input noise
     normalizeInputThreshold: 0.00001  
 
-#=========================================
-#   PHYSICAL PARAMETERS
-#=========================================
+    #=========================================
+    #   PHYSICAL PARAMETERS
+    #=========================================
     # Time step: default simulation timestep. 
     dt: 0.1
+
+    # ONLY APPLIED IF LONG TERM DIV IS ACTIVATED
+    #  ----------------------------------
     # buoyancyScale : Buoyancy forces scale
     # gravityScale : Gravity forces scale
     # Note: Manta and FluidNet divide gravity forces into "gravity" and "buoyancy"
@@ -88,11 +113,32 @@ modelParam:
     # Mantaflow calls (1) gravity and (2) buoyancy and allows for different g's 
     buoyancyScale: 0
     gravityScale: 0
+    # Gravity vector: Direction of gravity Vector
+    gravityVec:
+        x: 0
+        y: 0
+        z: 0
+    # training buoyancy scale : This is the buoyancy to use when adding buoyancy
+    # to the long term training. It will be applied in a random cardinal direction.
+    trainBuoyancyScale: 2.0
+    # training buoyancy probability : This is the probability to add buoyancy when
+    # long term training.
+    trainBuoyancyProb: 0.3
+    # training gravity scale : This is the gravity to use when adding gravity
+    # to the long term training. It will be applied in a random cardinal direction.
+    trainGravityScale: 0.0
+    # training gravity probability : This is the probability to add buoyancy when
+    # long term training.
+    trainGravityProb: 0.0
+    # ------------------------------------
     # Introduces a correcting factor in the denisty equation 
     # from "A splitting method for incompressible flows with variable
     # density based on a pressure Poisson equation" (Guermond, Salgado).
     # Not really tested... Recommendation is to leave it as false.
     correctScalar: false
+    # operatingDensity : When applying buoyancy, buoyancyScale is multiplied
+    # by (density(i,j) - operatingDensity)
+    operatingDensity: 0.0
     # viscosity : introduces a viscous term in moment equation.
     # Algortihm taken from the book "Fluid Simulation for Computer Graphics" by
     # Bridson
@@ -108,24 +154,3 @@ modelParam:
     # possible artifacts.
     sampleOutsideFluid: false
 
-#=========================================
-#   OUTPUT
-#=========================================
-# modelDir : Output folder for trained model and loss log.
-modelDir: "/path/to/output/folder" 
-# modelFilename : Trained model name
-modelFilename: "convModel"  
-
-#=========================================
-#   TRAINING MONITORING
-#=========================================
-
-# freqToFile : Epoch frequency for loss output to file/image saving.
-freqToFile: 5
-# printTraining : Debug options for training.
-# Prints or shows validation dataset and compares net
-# output to GT.
-# Options: save (save figures), show (shows in windows), none
-printTraining: "show" 
-# resume : resume training from checkpoint.
-resumeTraining: false

@@ -22,9 +22,9 @@ import lib.fluid as fluid
 parser = argparse.ArgumentParser(description='Training script.', \
         formatter_class= lib.SmartFormatter)
 parser.add_argument('--trainingConf',
-        default='config.yaml',
+        default='trainConfig.yaml',
         help='R|Training yaml config file.\n'
-        '  Default: config.yaml')
+        '  Default: trainConfig.yaml')
 parser.add_argument('--modelDir',
         help='R|Output folder location for trained model.\n'
         'When resuming, reads from this location.\n'
@@ -97,17 +97,18 @@ else:
 conf['shuffleTraining'] = not arguments.noShuffle
 
 # Preprocessing dataset message (will exit after preproc)
-if (conf['preprocOnly']):
+if (conf['preprocOriginalFluidNetDataOnly']):
     print('Running preprocessing only')
     resume = False
 
 print('Active CUDA Device: GPU', torch.cuda.current_device())
+cuda0 = torch.device('cuda:0')
 
 # Define training and test datasets
 tr = lib.FluidNetDataset(conf, 'tr', save_dt=4, resume=resume)
 te = lib.FluidNetDataset(conf, 'te', save_dt=4, resume=resume)
 
-if (conf['preprocOnly']):
+if (conf['preprocOriginalFluidNetDataOnly']):
     sys.exit()
 
 # We create two conf dicts, general params and model params.
@@ -296,13 +297,15 @@ try:
                 # rand(1) is an uniform dist on the interval [0,1)
                 if torch.rand(1)[0] < mconf['trainBuoyancyProb']:
                     # Add buoyancy to this batch (only in the long term frames)
-                    mconf['buoyancyScale'] = mconf['trainBuoyancyScale']
+                    var = torch.tensor([1.], device=cuda0)
+                    mconf['buoyancyScale'] = torch.normal(mconf['trainBuoyancyScale'], var)
 
                 oldGravityScale = mconf['gravityScale']
                 # rand(1) is an uniform dist on the interval [0,1)
                 if torch.rand(1)[0] < mconf['trainGravityProb']:
                     # Add gravity to this batch (only in the long term frames)
-                    mconf['gravityScale'] = mconf['trainGravityScale']
+                    var = torch.tensor([1.], device=cuda0)
+                    mconf['gravityScale'] = torch.normal(mconf['trainGravityScale'], var)
 
                 oldGravity = mconf['gravityVec']
                 if mconf['buoyancyScale'] > 0 or mconf['gravityScale'] > 0:
