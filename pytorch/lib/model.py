@@ -38,13 +38,13 @@ class _HiddenConvBlock(nn.Module):
     def forward(self, x):
         return self.block(x)
 
-
 class FluidNet(nn.Module):
     # For now, only 2D model. Add 2D/3D option. Only known from data!
     # Also, build model with MSE of pressure as loss func, therefore input is velocity
     # and output is pressure, to be compared to target pressure.
     def __init__(self, mconf, dropout=True):
         super(FluidNet, self).__init__()
+
 
         self.dropout = dropout
         self.mconf = mconf
@@ -59,18 +59,19 @@ class FluidNet(nn.Module):
         self.modDown1 = torch.nn.AvgPool2d(kernel_size=2)
         self.modDown2 = torch.nn.AvgPool2d(kernel_size=4)
 
-        self.convBank = _HiddenConvBlock(dropout)
+        self.convBank = _HiddenConvBlock(dropout=False)
 
-        #self.upscale1 = torch.nn.Upsample(scale_factor=2, mode='nearest')
-        #self.upscale2 = torch.nn.Upsample(scale_factor=4, mode='nearest')
+        self.upscale1 = torch.nn.Upsample(scale_factor=2, mode='nearest')
+        self.upscale2 = torch.nn.Upsample(scale_factor=4, mode='nearest')
 
-        self.deconv1 = torch.nn.ConvTranspose2d(16, 16, kernel_size=2, stride=2)
-        self.deconv2 = torch.nn.ConvTranspose2d(16, 16, kernel_size=4, stride=4)
+        #self.deconv1 = torch.nn.ConvTranspose2d(16, 16, kernel_size=2, stride=2)
+        #self.deconv2 = torch.nn.ConvTranspose2d(16, 16, kernel_size=4, stride=4)
 
-        self.conv2 = torch.nn.Conv2d(16*3, 16, kernel_size=1)
+        self.conv2 = torch.nn.Conv2d(16, 16, kernel_size=1)
+        self.conv3 = torch.nn.Conv2d(16, 8, kernel_size=1)
 
         # Output channels = 1 (pressure)
-        self.convOut = torch.nn.Conv2d(16, 1, kernel_size=1)
+        self.convOut = torch.nn.Conv2d(8, 1, kernel_size=1)
 
         # MultiScaleNet
         self.multiScale = MultiScaleNet(self.inDims)
@@ -189,16 +190,18 @@ class FluidNet(nn.Module):
             x2 = self.convBank(x2)
 
             # Upsample banks 1 and 2 to bank 0 size and accumulate inputs
-            #x1 = self.upscale1(x1)
-            #x2 = self.upscale2(x2)
-            x1 = self.deconv1(x1)
-            x2 = self.deconv2(x2)
+            x1 = self.upscale1(x1)
+            x2 = self.upscale2(x2)
+            #x1 = self.deconv1(x1)
+            #x2 = self.deconv2(x2)
 
-            x = torch.cat((x0, x1, x2), dim=1)
-            #x = x0 + x1 + x2
+            #x = torch.cat((x0, x1, x2), dim=1)
+            x = x0 + x1 + x2
 
             # Apply last 2 convolutions
             x = F.relu(self.conv2(x))
+            x = F.relu(self.conv2(x))
+            x = F.relu(self.conv3(x))
 
             # Output pressure (1 chan)
             p = self.convOut(x)
