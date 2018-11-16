@@ -27,7 +27,7 @@ T SemiLagrangeEulerFluidNet
   T maskSolid = flags.ne(TypeFluid);
   T maskFluid = flags.eq(TypeFluid);
 
-  AT_ASSERT(maskSolid.equal(1-maskFluid), "Masks are not complementary!");
+  AT_ASSERTM(maskSolid.equal(1-maskFluid), "Masks are not complementary!");
   // Don't advect solid geometry. 
   ret.masked_scatter_(maskSolid, src.masked_select(maskSolid));
   
@@ -83,7 +83,7 @@ T SemiLagrangeEulerFluidNetSavePos
   T ret = zeros_like(src);
   T maskSolid = flags.ne(TypeFluid);
   T maskFluid = flags.eq(TypeFluid);
-  AT_ASSERT(maskSolid.equal(1-maskFluid), "Masks are not complementary!");
+  AT_ASSERTM(maskSolid.equal(1-maskFluid), "Masks are not complementary!");
   
   T start_pos = infer_type(src).zeros({bsz, 3, d, h, w});
  
@@ -388,7 +388,7 @@ T SemiLagrangeEulerFluidNetMAC
   T maskSolid = flags.ne(TypeFluid);
   T maskFluid = flags.eq(TypeFluid);
 
-  AT_ASSERT(maskSolid.equal(1-maskFluid), "Masks are not complementary!");
+  AT_ASSERTM(maskSolid.equal(1-maskFluid), "Masks are not complementary!");
 
   // Don't advect solid geometry.
   ret.select(1,0).unsqueeze(1).masked_scatter_(
@@ -788,21 +788,21 @@ std::vector<T> solveLinearSystemJacobi
 ) {
   // Check arguments.
   T p = zeros_like(flags);
-  AT_ASSERT(p.dim() == 5 && flags.dim() == 5 && div.dim() == 5,
+  AT_ASSERTM(p.dim() == 5 && flags.dim() == 5 && div.dim() == 5,
              "Dimension mismatch");
-  AT_ASSERT(flags.size(1) == 1, "flags is not scalar");
+  AT_ASSERTM(flags.size(1) == 1, "flags is not scalar");
   int bsz = flags.size(0);
   int d = flags.size(2);
   int h = flags.size(3);
   int w = flags.size(4);
   int numel = d * h * w;
-  AT_ASSERT(p.is_same_size(flags), "size mismatch");
-  AT_ASSERT(div.is_same_size(flags), "size mismatch");
+  AT_ASSERTM(p.is_same_size(flags), "size mismatch");
+  AT_ASSERTM(div.is_same_size(flags), "size mismatch");
   if (!is3D) {
-    AT_ASSERT(d == 1, "d > 1 for a 2D domain");
+    AT_ASSERTM(d == 1, "d > 1 for a 2D domain");
   }
 
-  AT_ASSERT(p.is_contiguous() && flags.is_contiguous() &&
+  AT_ASSERTM(p.is_contiguous() && flags.is_contiguous() &&
             div.is_contiguous(), "Input is not contiguous");
 
   T p_prev = infer_type(p).zeros({bsz, 1, d, h, w});
