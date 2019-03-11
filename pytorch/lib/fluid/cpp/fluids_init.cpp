@@ -31,11 +31,11 @@ T SemiLagrangeEulerFluidNet
   // Don't advect solid geometry. 
   ret.masked_scatter_(maskSolid, src.masked_select(maskSolid));
   
-  T pos = infer_type(src).zeros({bsz, 3, d, h, w});
+  T pos = at::zeros({bsz, 3, d, h, w}).toType(src.scalar_type());
  
-  pos.select(1,0) = i.toType(infer_type(src)) + 0.5;
-  pos.select(1,1) = j.toType(infer_type(src)) + 0.5;
-  pos.select(1,2) = k.toType(infer_type(src)) + 0.5;
+  pos.select(1,0) = i.toType(src.scalar_type()) + 0.5;
+  pos.select(1,1) = j.toType(src.scalar_type()) + 0.5;
+  pos.select(1,2) = k.toType(src.scalar_type()) + 0.5;
 
   T displacement = zeros_like(pos);
  
@@ -85,11 +85,11 @@ T SemiLagrangeEulerFluidNetSavePos
   T maskFluid = flags.eq(TypeFluid);
   AT_ASSERTM(maskSolid.equal(1-maskFluid), "Masks are not complementary!");
   
-  T start_pos = infer_type(src).zeros({bsz, 3, d, h, w});
+  T start_pos = at::zeros({bsz, 3, d, h, w}).toType(src.scalar_type());
  
-  start_pos.select(1,0) = i.toType(infer_type(src)) + 0.5;
-  start_pos.select(1,1) = j.toType(infer_type(src)) + 0.5;
-  start_pos.select(1,2) = k.toType(infer_type(src)) + 0.5;
+  start_pos.select(1,0) = i.toType(src.scalar_type()) + 0.5;
+  start_pos.select(1,1) = j.toType(src.scalar_type()) + 0.5;
+  start_pos.select(1,2) = k.toType(src.scalar_type()) + 0.5;
 
   T displacement = zeros_like(start_pos);
 
@@ -159,19 +159,19 @@ T getClampBounds
   int h   = flags.size(3);
   int w   = flags.size(4);
 
-  T minv = full_like(flags.toType(infer_type(src)), INFINITY).squeeze(1);
-  T maxv = full_like(flags.toType(infer_type(src)), -INFINITY).squeeze(1);
+  T minv = full_like(flags.toType(src.scalar_type()), INFINITY).squeeze(1);
+  T maxv = full_like(flags.toType(src.scalar_type()), -INFINITY).squeeze(1);
   
-  T i0 = infer_type(pos).zeros({bsz, d, h, w}).toType(at::kLong);
-  T j0 = infer_type(pos).zeros({bsz, d, h, w}).toType(at::kLong);
-  T k0 = infer_type(pos).zeros({bsz, d, h, w}).toType(at::kLong);
+  T i0 = at::zeros({bsz, d, h, w}).toType(at::kLong);
+  T j0 = at::zeros({bsz, d, h, w}).toType(at::kLong);
+  T k0 = at::zeros({bsz, d, h, w}).toType(at::kLong);
  
   i0 = clamp(pos.select(1,0).toType(at::kLong), 0, flags.size(4) - 1);
   j0 = clamp(pos.select(1,1).toType(at::kLong), 0, flags.size(3) - 1);
   k0 = (src.size(1) > 1) ? 
       clamp(pos.select(1,2).toType(at::kLong), 0, flags.size(2) - 1) : zeros_like(i0);
 
-  T idx_b = infer_type(i0).arange(0, bsz).view({bsz,1,1,1});
+  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(i0.scalar_type());
   idx_b = idx_b.expand({bsz,d,h,w});
  
   // We have to look all neighboors.
@@ -233,7 +233,7 @@ T MacCormackClampFluidNet(
   T clamp_max = full_like(src, -INFINITY);
 
   // Calculate the clamp bounds around the forward position.
-  T pos = infer_type(fwd_pos).zeros({bsz, 3, d, h, w});
+  T pos = at::zeros({bsz, 3, d, h, w}).toType(fwd_pos.scalar_type());
   pos.select(1,0) = fwd_pos.select(1,0);
   pos.select(1,1) = fwd_pos.select(1,1);
   if (is3D) {
@@ -270,6 +270,10 @@ at::Tensor advectScalar
 
   bool is3D = (U.size(1) == 3);
 
+  src.set_requires_grad(false);
+  U.set_requires_grad(false);
+  flags.set_requires_grad(false);
+
   T s_dst = zeros_like(src);
 
   T fwd = zeros_like(src);
@@ -277,44 +281,57 @@ at::Tensor advectScalar
   T fwd_pos = zeros_like(U);
   T bwd_pos = zeros_like(U);
 
+  std::cout << "Is variable?" << std::endl;
+  std::cout << src.is_variable() << std::endl;
+  std::cout << U.is_variable() << std::endl;
+  std::cout << flags.is_variable() << std::endl;
+
   AdvectMethod method = StringToAdvectMethod(method_str);
   const bool is_levelset = false;
   const int order_space = 1;
   const bool line_trace = true;
 
-  T pos_corrected = infer_type(src).zeros({bsz, 3, d, h, w});
+  std::cout << "HELLO0" << std::endl;
+  T pos_corrected = at::zeros({bsz, 3, d, h, w}).toType(src.scalar_type());
+  std::cout << "HELLO1" << std::endl;
 
   T cur_dst = (method == ADVECT_MACCORMACK_FLUIDNET) ? fwd : s_dst;
+  std::cout << "HELLO2" << std::endl;
   
-  T idx_x = infer_type(flags).arange(0, w).view({1,w}).expand({bsz, d, h, w}).toType(at::kLong);
-  T idx_y = infer_type(idx_x).arange(0, h).view({1,h,1}).expand({bsz, d, h, w});
+  T idx_x = at::arange(0, w).view({1,w}).expand({bsz, d, h, w}).toType(at::kLong);
+  T idx_y = at::arange(0, h).view({1,h,1}).expand({bsz, d, h, w}).toType(idx_x.scalar_type());
   T idx_z = zeros_like(idx_x);
   if (is3D) {
-     idx_z = infer_type(idx_x).arange(0, d).view({1,d,1,1}).expand({bsz, d, h, w});
+     idx_z = at::arange(0, d).view({1,d,1,1}).expand({bsz, d, h, w}).toType(idx_x.scalar_type());
   }
 
+  std::cout << "HELLO3" << std::endl;
   T maskBorder = (idx_x < bnd).__or__
                  (idx_x > w - 1 - bnd).__or__
                  (idx_y < bnd).__or__
-                 (idx_y > h - 1 - bnd);
+                 (idx_y > h - 1 - bnd).cuda();
   if (is3D) {
       maskBorder = maskBorder.__or__(idx_z < bnd).__or__
                                     (idx_z > d - 1 - bnd);
   }
   maskBorder.unsqueeze_(1);
  
+  std::cout << "HELLO4" << std::endl;
   // Manta zeros stuff on the border.
   cur_dst.masked_fill_(maskBorder, 0);
-  pos_corrected.select(1,0) = idx_x.toType(infer_type(src)) + 0.5;
-  pos_corrected.select(1,1) = idx_y.toType(infer_type(src)) + 0.5;
-  pos_corrected.select(1,2) = idx_z.toType(infer_type(src)) + 0.5;
+  std::cout << "HELLO5" << std::endl;
+  pos_corrected.select(1,0) = idx_x.toType(src.scalar_type()) + 0.5;
+  pos_corrected.select(1,1) = idx_y.toType(src.scalar_type()) + 0.5;
+  pos_corrected.select(1,2) = idx_z.toType(src.scalar_type()) + 0.5;
 
+  std::cout << "HELLO6" << std::endl;
   fwd_pos.select(1,0).masked_scatter_(maskBorder.squeeze(1), pos_corrected.select(1,0).masked_select(maskBorder.squeeze(1)));
   fwd_pos.select(1,1).masked_scatter_(maskBorder.squeeze(1), pos_corrected.select(1,1).masked_select(maskBorder.squeeze(1)));
   if (is3D) {
     fwd_pos.select(1,2).masked_scatter_(maskBorder.squeeze(1), pos_corrected.select(1,2).masked_select(maskBorder.squeeze(1)));
   }
  
+  std::cout << "HELLO7" << std::endl;
   // Forward step.
   T val;
   if (method == ADVECT_EULER_FLUIDNET) {
@@ -326,7 +343,9 @@ at::Tensor advectScalar
   } else {
     AT_ERROR("Advection method not supported!");
   }
+  std::cout << "HELLO8" << std::endl;
   cur_dst.masked_scatter_(maskBorder.eq(0), val.masked_select(maskBorder.eq(0)));
+  std::cout << "HELLO9" << std::endl;
 
   if (method != ADVECT_MACCORMACK_FLUIDNET) {
     // We're done. The forward Euler step is already in the output array.
@@ -336,10 +355,12 @@ at::Tensor advectScalar
     // step on the forward data - hence we need to finish the above ops
     // before moving on).) 
     // Manta zeros stuff on the border.
+    std::cout << "HELLO10" << std::endl;
     bwd.masked_fill_(maskBorder, 0);
-    pos_corrected.select(1,0) = idx_x.toType(infer_type(src))+ 0.5;
-    pos_corrected.select(1,1) = idx_y.toType(infer_type(src))+ 0.5;
-    pos_corrected.select(1,2) = idx_z.toType(infer_type(src))+ 0.5;
+    pos_corrected.select(1,0) = idx_x.toType(src.scalar_type())+ 0.5;
+    pos_corrected.select(1,1) = idx_y.toType(src.scalar_type())+ 0.5;
+    pos_corrected.select(1,2) = idx_z.toType(src.scalar_type())+ 0.5;
+    std::cout << "HELLO11" << std::endl;
 
     bwd_pos.masked_scatter_(maskBorder, pos_corrected.masked_select(maskBorder));
     
@@ -350,15 +371,18 @@ at::Tensor advectScalar
           idx_x, idx_y, idx_z, line_trace, sample_outside_fluid, bwd_pos)
           .masked_select(maskBorder.ne(1)));       
     }
+    std::cout << "HELLO12" << std::endl;
     // Now compute the correction.
     s_dst = MacCormackCorrect(flags, src, fwd, bwd, maccormack_strength, is_levelset);
   
     // Now perform the clamping.
+    std::cout << "HELLO13" << std::endl;
     if (method == ADVECT_MACCORMACK_FLUIDNET) {
       s_dst.masked_scatter_(maskBorder.ne(1),
           MacCormackClampFluidNet(flags, U, s_dst, src, fwd, fwd_pos, bwd_pos,
           sample_outside_fluid).masked_select(maskBorder.ne(1))); 
     }
+    std::cout << "HELLO14" << std::endl;
   }
 
   return s_dst;
@@ -383,8 +407,8 @@ T SemiLagrangeEulerFluidNetMAC
   bool is3D = (d > 1);
 
   T zero = zeros_like(src);
-  T ret = infer_type(src).zeros({bsz,3,d,h,w});
-  T vec3_0 = infer_type(src).zeros({bsz,3,d,h,w});
+  T ret = at::zeros({bsz,3,d,h,w}).toType(src.scalar_type());
+  T vec3_0 = at::zeros({bsz,3,d,h,w}).toType(src.scalar_type());
   T maskSolid = flags.ne(TypeFluid);
   T maskFluid = flags.eq(TypeFluid);
 
@@ -401,11 +425,11 @@ T SemiLagrangeEulerFluidNetMAC
   }
   // Get correct velocity at MAC position. 
   // No need to shift xpos etc. as lookup field is also shifted. 
-  T pos = infer_type(src).zeros({bsz, 3, d, h, w});
+  T pos = at::zeros({bsz, 3, d, h, w}).toType(src.scalar_type());
 
-  pos.select(1,0) = i.toType(infer_type(src)) + 0.5;
-  pos.select(1,1) = j.toType(infer_type(src)) + 0.5;
-  pos.select(1,2) = k.toType(infer_type(src)) + 0.5;
+  pos.select(1,0) = i.toType(src.scalar_type()) + 0.5;
+  pos.select(1,1) = j.toType(src.scalar_type()) + 0.5;
+  pos.select(1,2) = k.toType(src.scalar_type()) + 0.5;
 
   // FluidNet: We floatly want to clamp to the SMALLEST of the steps in each
   // dimension, however this is OK for now (because doing so would expensive)...
@@ -446,10 +470,10 @@ T MacCormackCorrectMAC
 
   T zero = zeros_like(i);
   T zeroBy = zero.toType(at::kByte);
-  T idx_b = infer_type(i).arange(0, bsz).view({bsz,1,1,1}).toType(at::kLong);
+  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(at::kLong);
   idx_b = idx_b.expand({bsz,d,h,w});
 
-  T skip = infer_type(flags).zeros({bsz, 3, d, h, w}).toType(at::kByte);
+  T skip = at::zeros({bsz, 3, d, h, w}).toType(at::kByte).toType(flags.scalar_type());
 
   T maskSolid = flags.ne(TypeFluid);
   skip.masked_fill_(maskSolid, 1);
@@ -466,7 +490,7 @@ T MacCormackCorrectMAC
     skip.select(1,2).masked_fill_(mask2, 1);
   }
 
-  T dst = infer_type(flags).zeros({bsz, (is3D? 3:2), d, h, w});
+  T dst = at::zeros({bsz, (is3D? 3:2), d, h, w}).toType(flags.scalar_type());
   const int dim = is3D? 3 : 2;
 
   for (int c = 0; c < dim; ++c) {
@@ -488,13 +512,13 @@ T doClampComponentMAC
   int h   = flags.size(3);
   int w   = flags.size(4);
   bool is3D = (d > 1);
-  T idx_b = infer_type(flags).arange(0, bsz).view({bsz,1,1,1}).toType(at::kLong);
+  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(at::kLong);
   idx_b = idx_b.expand({bsz,d,h,w});
 
   T ret = zeros_like(fwd);
 
-  T minv = full_like(flags.toType(infer_type(dst)), INFINITY);
-  T maxv = full_like(flags.toType(infer_type(dst)), -INFINITY);
+  T minv = full_like(flags.toType(dst.scalar_type()), INFINITY);
+  T maxv = full_like(flags.toType(dst.scalar_type()), -INFINITY);
 
   // forward and backward
   std::vector<T> positions;
@@ -539,7 +563,8 @@ T doClampComponentMAC
     i1.masked_fill_(NotInBounds, 0);
     j1.masked_fill_(NotInBounds, 0);
     k1.masked_fill_(NotInBounds, 0);
-    T c = infer_type(i0).scalarTensor(chan);
+    T c = at::zeros({1}).toType(idx_b.scalar_type());
+    c[0] = chan;
 
     NotInBounds = NotInBounds.unsqueeze(1);
     T InBounds = NotInBounds.ne(1);
@@ -602,8 +627,8 @@ T MacCormackClampMAC
   int w   = flags.size(4);
   bool is3D = (d > 1);
 
-  T zero = infer_type(vel).zeros({bsz, 3, d, h, w});
-  T pos = at::cat({i.unsqueeze(1), j.unsqueeze(1), k.unsqueeze(1)}, 1).toType(infer_type(vel));
+  T zero = at::zeros({bsz, 3, d, h, w}).toType(vel.scalar_type());
+  T pos = at::cat({i.unsqueeze(1), j.unsqueeze(1), k.unsqueeze(1)}, 1).toType(vel.scalar_type());
   T dfwd = fwd.clone();
 
   // getAtMACX-Y-Z already eliminates border cells. In border cells we set 0 as vel
@@ -651,8 +676,8 @@ at::Tensor advectVel
   // T orig = U.clone();
 
   // The maccormack method also needs fwd and bwd temporary arrays.
-  T fwd = infer_type(flags).zeros({bsz, U.size(1), d, h, w});
-  T bwd = infer_type(flags).zeros({bsz, U.size(1), d, h, w});
+  T fwd = at::zeros({bsz, U.size(1), d, h, w}).toType(flags.scalar_type());
+  T bwd = at::zeros({bsz, U.size(1), d, h, w}).toType(flags.scalar_type());
 
   AdvectMethod method = StringToAdvectMethod(method_str);
 
@@ -661,15 +686,15 @@ at::Tensor advectVel
   // methods only).
   const bool line_trace = false;
 
-  T pos_corrected = infer_type(orig).zeros({bsz, 3, d, h, w});
+  T pos_corrected = at::zeros({bsz, 3, d, h, w}).toType(orig.scalar_type());
 
   T cur_U_dst = (method == ADVECT_MACCORMACK_FLUIDNET) ? fwd : U_dst;
 
-  T idx_x = infer_type(flags).arange(0, w).view({1,w}).expand({bsz, d, h, w}).toType(at::kLong);
-  T idx_y = infer_type(idx_x).arange(0, h).view({1,h,1}).expand({bsz, d, h, w});
+  T idx_x = at::arange(0, w).view({1,w}).expand({bsz, d, h, w}).toType(at::kLong);
+  T idx_y = at::arange(0, h).view({1,h,1}).expand({bsz, d, h, w}).toType(idx_x.scalar_type());
   T idx_z = zeros_like(idx_x);
   if (is3D) {
-     idx_z = infer_type(idx_x).arange(0, d).view({1,d,1,1}).expand({bsz, d, h, w});
+     idx_z = at::arange(0, d).view({1,d,1,1}).expand({bsz, d, h, w}).toType(idx_x.scalar_type());
   }
 
   T maskBorder = (idx_x < bnd).__or__
@@ -756,7 +781,7 @@ at::Tensor advectVel
     }
 
     // Now perform clamping.
-    const T dval = infer_type(U).zeros({bsz, 3, d, h, w});
+    const T dval = at::zeros({bsz, 3, d, h, w}).toType(U.scalar_type());
     dval.select(1,0) = U_dst.select(1,0).clone();
     dval.select(1,1) = U_dst.select(1,1).clone();
     if (is3D) {
@@ -805,9 +830,9 @@ std::vector<T> solveLinearSystemJacobi
   AT_ASSERTM(p.is_contiguous() && flags.is_contiguous() &&
             div.is_contiguous(), "Input is not contiguous");
 
-  T p_prev = infer_type(p).zeros({bsz, 1, d, h, w});
-  T p_delta = infer_type(p).zeros({bsz, 1, d, h, w});
-  T p_delta_norm = infer_type(p).zeros({bsz});
+  T p_prev = at::zeros({bsz, 1, d, h, w}).toType(p.scalar_type());
+  T p_delta = at::zeros({bsz, 1, d, h, w}).toType(p.scalar_type());
+  T p_delta_norm = at::zeros({bsz}).toType(p.scalar_type());
 
   if (max_iter < 1) {
      AT_ERROR("At least 1 iteration is needed (maxIter < 1)");
@@ -822,22 +847,21 @@ std::vector<T> solveLinearSystemJacobi
   //RealGrid* cur_pressure_prev = &pressure_prev;
 
   T residual;
- // T at_zero = infer_type(tensor_p).scalarTensor(0);
 
   int64_t iter = 0;
   while (true) {
     const int32_t bnd =1;
     // Kernel: Jacobi Iteration
-    T mCont = infer_type(flags).ones({bsz, 1, d, h, w}).toType(at::kByte); // Continue mask
+    T mCont = at::ones({bsz, 1, d, h, w}).toType(at::kByte); // Continue mask
 
-    T idx_x = infer_type(flags).arange(0, w).view({1,w}).expand({bsz, d, h, w}).toType(at::kLong);
-    T idx_y = infer_type(idx_x).arange(0, h).view({1,h,1}).expand({bsz, d, h, w});
+    T idx_x = at::arange(0, w).view({1,w}).expand({bsz, d, h, w}).toType(at::kLong);
+    T idx_y = at::arange(0, h).view({1,h,1}).expand({bsz, d, h, w}).toType(idx_x.scalar_type());
     T idx_z = zeros_like(idx_x);
     if (is3D) {
-       idx_z = infer_type(idx_x).arange(0, d).view({1,d,1,1}).expand({bsz, d, h, w});
+       idx_z = at::arange(0, d).view({1,d,1,1}).expand({bsz, d, h, w}).toType(idx_x.scalar_type());
     }
 
-    T idx_b = infer_type(flags).arange(0, bsz).view({bsz,1,1,1}).toType(at::kLong);
+    T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(at::kLong).toType(flags.scalar_type());
     idx_b = idx_b.expand({bsz,d,h,w});
 
     T maskBorder = (idx_x < bnd).__or__
@@ -939,7 +963,7 @@ std::vector<T> solveLinearSystemJacobi
                 << residual << std::endl;
     }
 
-    if (at::Scalar(residual).toFloat() < p_tol) {
+    if (*(residual.data<float>()) < p_tol) {
       if (verbose) {
         std::cout << "Jacobi max residual fell below p_tol (" << p_tol
                   << ") (terminating)" << std::endl;

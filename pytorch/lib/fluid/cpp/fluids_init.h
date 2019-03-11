@@ -3,7 +3,7 @@
 #include <sstream>
 #include <vector>
 
-#include "torch/torch.h"
+#include "torch/extension.h"
 #include "grid.h"
 #include "cell_type.h"
 #include "advect_type.h"

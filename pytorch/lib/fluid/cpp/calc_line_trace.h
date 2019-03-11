@@ -1,6 +1,6 @@
 #pragma once
 
-#include "torch/torch.h"
+#include "torch/extension.h"
 #include "cell_type.h"
 
 // See the .cpp file for detailed comments.

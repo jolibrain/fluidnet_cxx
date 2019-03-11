@@ -40,9 +40,9 @@ parser.add_argument('--simConf',
         'Overwrites parameters from trainingConf file.\n'
         'Default: plumeConfig.yaml')
 parser.add_argument('--trainingConf',
-        default='config.yaml',
+        default='trainConfig.yaml',
         help='R|Training yaml config file.\n'
-        'Default: config.yaml')
+        'Default: trainConfig.yaml')
 parser.add_argument('--modelDir',
         help='R|Neural network model location.\n'
         'Default: written in simConf file.')
@@ -81,16 +81,16 @@ if restart_sim:
     with open(restart_config_file) as f:
         simConfig = yaml.load(f)
 
-conf['modelDir'] = arguments.modelDir or simConf['modelDir']
-assert (glob.os.path.exists(conf['modelDir'])), 'Directory ' + str(conf['modelDir']) + ' does not exists'
-conf['modelFilename'] = arguments.modelFilename or simConf['modelFilename']
-conf['modelDirname'] = conf['modelDir'] + '/' + conf['modelFilename']
+simConf['modelDir'] = arguments.modelDir or simConf['modelDir']
+assert (glob.os.path.exists(simConf['modelDir'])), 'Directory ' + str(simConf['modelDir']) + ' does not exists'
+simConf['modelFilename'] = arguments.modelFilename or simConf['modelFilename']
+simConf['modelDirname'] = simConf['modelDir'] + '/' + simConf['modelFilename']
 resume = False # For training, at inference set always to false
 
 
 print('Active CUDA Device: GPU', torch.cuda.current_device())
 print()
-path = conf['modelDir']
+path = simConf['modelDir']
 path_list = path.split(glob.os.sep)
 saved_model_name = glob.os.path.join('/', *path_list, path_list[-1] + '_saved.py')
 temp_model = glob.os.path.join('lib', path_list[-1] + '_saved_simulate.py')
@@ -102,15 +102,10 @@ model_saved = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(model_saved)
 
 try:
-    te = lib.FluidNetDataset(conf, 'te', save_dt=4, resume=resume) # Test instance of custom Dataset
+    mconf = {}
 
-    conf, mconf = te.createConfDict()
-
-    cpath = glob.os.path.join(conf['modelDir'], conf['modelFilename'] + '_conf.pth')
-    mcpath = glob.os.path.join(conf['modelDir'], conf['modelFilename'] + '_mconf.pth')
-    assert glob.os.path.isfile(mcpath), cpath  + ' does not exits!'
+    mcpath = glob.os.path.join(simConf['modelDir'], simConf['modelFilename'] + '_mconf.pth')
     assert glob.os.path.isfile(mcpath), mcpath  + ' does not exits!'
-    conf.update(torch.load(cpath))
     mconf.update(torch.load(mcpath))
 
     print('==> overwriting mconf with user-defined simulation parameters')
@@ -118,7 +113,7 @@ try:
     mconf.update(simConf)
 
     print('==> loading model')
-    mpath = glob.os.path.join(conf['modelDir'], conf['modelFilename'] + '_lastEpoch_best.pth')
+    mpath = glob.os.path.join(simConf['modelDir'], simConf['modelFilename'] + '_lastEpoch_best.pth')
     assert glob.os.path.isfile(mpath), mpath  + ' does not exits!'
     state = torch.load(mpath)
 
@@ -245,7 +240,7 @@ try:
             #    method = 'jacobi'
             #else:
             method = mconf['simMethod']
-            lib.simulate(conf, mconf, batch_dict, net, method)
+            lib.simulate(mconf, batch_dict, net, method)
             if (it% outIter == 0):
                 print("It = " + str(it))
                 tensor_div = fluid.velocityDivergence(batch_dict['U'].clone(),

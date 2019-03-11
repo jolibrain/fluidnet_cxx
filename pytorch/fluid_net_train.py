@@ -356,7 +356,7 @@ try:
                 with torch.no_grad():
                     for i in range(0, num_future_steps):
                         output_div = (i == num_future_steps)
-                        lib.simulate(conf, mconf, batch_dict, net, \
+                        lib.simulate(mconf, batch_dict, net, \
                                 'convnet', output_div=output_div)
 
                 data_lt = torch.zeros_like(data)

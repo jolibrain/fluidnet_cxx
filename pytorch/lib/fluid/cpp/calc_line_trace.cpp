@@ -8,13 +8,13 @@ const float hit_margin = 1e-5;
 const float epsilon = 1e-12;
 
 void getPixelCenter(const T& pos, T& ix) {
-  AT_ASSERTM(at::isFloatingType(infer_type(pos).scalarType()), "Error: getPixelCenter expects floating type tensor for pos argument");
+  AT_ASSERTM(at::isFloatingType(pos.scalar_type()), "Error: getPixelCenter expects floating type tensor for pos argument");
   AT_ASSERTM(pos.size(1) == 3, "Pos must have 3 channels");
   ix = pos.toType(at::kLong);
 }
 
 T isOutOfDomain(const T& pos, const T& flags) {
-  AT_ASSERTM(at::isFloatingType(infer_type(pos).scalarType()), "Error: isOutOfDomain expects floating type tensor for pos argument");
+  AT_ASSERTM(at::isFloatingType(pos.scalar_type()), "Error: isOutOfDomain expects floating type tensor for pos argument");
   // Note: no need to make the difference between 2d and 3d as postion are intially
   // moved by 0.5. If pos is 2d, pos.z = 0.5 and the two last conditions will always
   // be false.
@@ -32,7 +32,7 @@ T isOutOfDomain(const T& pos, const T& flags) {
 // if pos is outOfDomain, we return false.
 T isBlockedCell(const T& pos, const T& flags) {
 
-  AT_ASSERTM(at::isFloatingType(infer_type(pos).scalarType()), "Error: isBlockedCell expects floating type tensor for pos argument");
+  AT_ASSERTM(at::isFloatingType(pos.scalar_type()), "Error: isBlockedCell expects floating type tensor for pos argument");
 
   int bsz = pos.size(0);
   int d = pos.size(2);
@@ -40,7 +40,7 @@ T isBlockedCell(const T& pos, const T& flags) {
   int w = pos.size(4);
 
   T ix;
-  T idx_b = at::infer_type(pos).arange(0, bsz).view({bsz,1,1,1}).toType(at::kLong);
+  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(at::kLong);
   idx_b = idx_b.expand({bsz,d,h,w});
 
   T isOut = isOutOfDomain(pos, flags);
@@ -196,7 +196,7 @@ T calcRayBorderIntersection(const T& pos, const T& next_pos,
    //   --> gamma_i = (m - pos_i) / (next_pos_i - pos_i)
 
    // minimum step only has ONE channel
-   T min_step = full_like(flags.squeeze(1).toType(infer_type(pos)), INFINITY);
+   T min_step = full_like(flags.squeeze(1).toType(pos.scalar_type()), INFINITY);
 
    // Left Face
    T maskLF = next_pos.select(1,0) <= hit_margin;
@@ -385,7 +385,7 @@ void calcLineTrace(const T& pos, const T& delta, const T& flags,
        T idx;
        getPixelCenter(next_pos, idx);
 
-       next_pos_ctr = idx.toType(infer_type(pos)) + 0.5;
+       next_pos_ctr = idx.toType(pos.scalar_type()) + 0.5;
        AT_ASSERTM(isOutOfDomain(next_pos_ctr, flags).eq(0).masked_select(countMask).
            equal(countMask.masked_select(countMask)), "Error: Center of blocker cell is out of the domain!");
      

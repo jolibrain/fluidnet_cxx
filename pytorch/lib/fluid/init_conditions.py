@@ -64,7 +64,7 @@ def createPlumeBCs(batch_dict, density_val, u_scale, rad):
 
     #It is clearer to just multiply by mask (casted into Float)
     maskInside_f = maskInside.float().clone()
-    UBC[:,:,:,0:4] = maskInside_f * vec.view(1,2,1,1,1).expand_as(UBC[:,:,:,0:4])
+    UBC[:,:,:,0:4] = maskInside_f * vec.view(1,2,1,1,1).expand_as(UBC[:,:,:,0:4]).float()
     UBCInvMask[:,:,:,0:4].masked_fill_(maskInside, 0)
 
     densityBC[:,:,:,0:4].masked_fill_(maskInside, density_val)

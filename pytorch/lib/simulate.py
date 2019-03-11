@@ -25,11 +25,10 @@ def setConstVals(batch_dict, p, U, flags, density):
         density.add_(batch_dict['densityBC'])
         batch_dict['density'] = density.clone()
 
-def simulate(conf, mconf, batch_dict, net, sim_method, output_div=False):
+def simulate(mconf, batch_dict, net, sim_method, output_div=False):
     r"""Top level simulation loop.
 
     Arguments:
-        conf (dict): Configuration dictionnary.
         mconf (dict): Model configuration dictionnary.
         batch_dict (dict): Dictionnary of torch Tensors.
             Keys must be 'U', 'flags', 'p', 'density'.

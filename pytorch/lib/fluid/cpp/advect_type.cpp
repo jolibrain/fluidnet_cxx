@@ -1,5 +1,5 @@
 #include <sstream>
-#include "torch/torch.h"
+#include "torch/extension.h"
 #include "advect_type.h"
 
 AdvectMethod StringToAdvectMethod(const std::string& str) {
