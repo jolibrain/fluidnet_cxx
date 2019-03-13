@@ -19,7 +19,9 @@ T interpol(const T& self, const T& pos) {
   int d = pos.size(2);
   int h = pos.size(3);
   int w = pos.size(4);
-  
+ 
+  auto options = self.options();
+
   // 0.5 is defined as the center of the first cell as the scheme shows:
   //   |----x----|----x----|----x----|
   //  x=0  0.5   1   1.5   2   2.5   3
@@ -39,7 +41,7 @@ T interpol(const T& self, const T& pos) {
   T y0 = pos0.select(1,1).clamp_(0, self.size(3) - 2);
   T z0 = pos0.select(1,2).clamp_(0, self.size(2) - 2);
 
-  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(x0.scalar_type());
+  T idx_b = at::arange(0, bsz, options).view({bsz,1,1,1}).toType(x0.scalar_type());
   idx_b = idx_b.expand({bsz,d,h,w});
 
   s1.clamp_(0, 1);
@@ -122,6 +124,9 @@ T interpolWithFluid(const T& self, const T& flags, const T& pos) {
   int d = pos.size(2);
   int h = pos.size(3);
   int w = pos.size(4);
+
+  auto options = self.options();
+
   // 0.5 is defined as the center of the first cell as the scheme shows:
   //   |----x----|----x----|----x----|
   //  x=0  0.5   1   1.5   2   2.5   3
@@ -141,7 +146,7 @@ T interpolWithFluid(const T& self, const T& flags, const T& pos) {
   T y0 = pos0.select(1,1).clamp_(0, self.size(3) - 2);
   T z0 = pos0.select(1,2).clamp_(0, self.size(2) - 2);
 
-  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(x0.scalar_type());
+  T idx_b = at::arange(0, bsz, options).view({bsz,1,1,1}).toType(x0.scalar_type());
   idx_b = idx_b.expand({bsz,d,h,w});
 
   s1.clamp_(0, 1);
@@ -163,8 +168,8 @@ T interpolWithFluid(const T& self, const T& flags, const T& pos) {
    T is_fluid_a = flags.index({idx_b, {}, z0  , y0  , x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
    T is_fluid_b = flags.index({idx_b, {}, z0  , y0+1, x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
 
-   T Iab;
-   T is_fluid_ab; 
+   T Iab = at::empty_like(Ia);
+   T is_fluid_ab = at::empty_like(is_fluid_a); 
    interpol1DWithFluid(Ia, is_fluid_a, Ib, is_fluid_b, t0, t1, is_fluid_ab, Iab); 
 
    // val_cd = data(xi + 1, yi, zi, 0, b) * t0 +
@@ -175,8 +180,8 @@ T interpolWithFluid(const T& self, const T& flags, const T& pos) {
    T is_fluid_c = flags.index({idx_b, {}, z0  , y0  , x0+1}).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
    T is_fluid_d = flags.index({idx_b, {}, z0  , y0+1, x0+1}).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
 
-   T Icd;
-   T is_fluid_cd; 
+   T Icd = at::empty_like(Ic);
+   T is_fluid_cd = at::empty_like(is_fluid_c); 
    interpol1DWithFluid(Ic, is_fluid_c, Id, is_fluid_d, t0, t1, is_fluid_cd, Icd); 
 
    // val_ef = data(xi, yi, zi + 1, 0, b) * t0 +
@@ -187,8 +192,8 @@ T interpolWithFluid(const T& self, const T& flags, const T& pos) {
    T is_fluid_e = flags.index({idx_b, {}, z0+1, y0  , x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
    T is_fluid_f = flags.index({idx_b, {}, z0+1, y0+1, x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
 
-   T Ief;
-   T is_fluid_ef;
+   T Ief = at::empty_like(Ie);
+   T is_fluid_ef = at::empty_like(is_fluid_e);
    interpol1DWithFluid(Ie, is_fluid_e, If, is_fluid_f, t0, t1, is_fluid_ef, Ief);
 
    // val_gh = data(xi + 1, yi, zi + 1, 0, b) * t0 +
@@ -199,23 +204,23 @@ T interpolWithFluid(const T& self, const T& flags, const T& pos) {
    T is_fluid_g = flags.index({idx_b, {}, z0+1, y0  , x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
    T is_fluid_h = flags.index({idx_b, {}, z0+1, y0+1, x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
 
-   T Igh;
-   T is_fluid_gh;
+   T Igh = at::empty_like(Ig);
+   T is_fluid_gh = at::empty_like(is_fluid_g);
    interpol1DWithFluid(Ig, is_fluid_g, Ih, is_fluid_h, t0, t1, is_fluid_gh, Igh);
 
    // val_abcd = val_ab * s0 + val_cd * s1
-   T Iabcd;
-   T is_fluid_abcd;
+   T Iabcd = at::empty_like(Igh);
+   T is_fluid_abcd = at::empty_like(is_fluid_gh);
    interpol1DWithFluid(Iab, is_fluid_ab, Icd, is_fluid_cd, s0, s1, is_fluid_abcd, Iabcd);
 
    // val_efgh = val_ef * s0 + val_gh * s1
-   T Iefgh;
-   T is_fluid_efgh;
+   T Iefgh = at::empty_like(Iabcd);
+   T is_fluid_efgh = at::empty_like(is_fluid_abcd);
    interpol1DWithFluid(Ief, is_fluid_ef, Igh, is_fluid_gh, s0, s1, is_fluid_efgh, Iefgh);
    
    // val = val_abcd * f0 + val_efgh * f1
-   T Ival;
-   T is_fluid;
+   T Ival = at::empty_like(Iabcd);
+   T is_fluid = at::empty_like(is_fluid_efgh);
    interpol1DWithFluid(Iabcd, is_fluid_abcd, Iefgh, is_fluid_efgh, f0, f1,
                              is_fluid, Ival);
 
@@ -236,8 +241,8 @@ T interpolWithFluid(const T& self, const T& flags, const T& pos) {
    T is_fluid_a = flags.index({idx_b, {}, z0 , y0  , x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
    T is_fluid_b = flags.index({idx_b, {}, z0 , y0+1, x0  }).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
 
-   T Iab;
-   T is_fluid_ab;
+   T Iab = at::empty_like(Ia);
+   T is_fluid_ab = at::empty_like(is_fluid_a);
    interpol1DWithFluid(Ia, is_fluid_a, Ib, is_fluid_b, t0, t1, is_fluid_ab, Iab); 
 
    // val_cd = data(xi + 1, yi, 0, 0, b) * t0 +
@@ -248,13 +253,13 @@ T interpolWithFluid(const T& self, const T& flags, const T& pos) {
    T is_fluid_c = flags.index({idx_b, {}, z0 , y0  , x0+1}).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
    T is_fluid_d = flags.index({idx_b, {}, z0 , y0+1, x0+1}).squeeze(4).unsqueeze(1).eq(fluid::TypeFluid);
 
-   T Icd;
-   T is_fluid_cd;
+   T Icd = at::empty_like(Ic);
+   T is_fluid_cd = at::empty_like(is_fluid_c);
    interpol1DWithFluid(Ic, is_fluid_c, Id, is_fluid_d, t0, t1, is_fluid_cd, Icd);
 
    // val = val_ab * s0 + val_cd * s1
-   T Ival;
-   T is_fluid;
+   T Ival = at::empty_like(Ic);
+   T is_fluid = at::empty_like(is_fluid_cd);
    interpol1DWithFluid(Iab, is_fluid_ab, Icd, is_fluid_cd, s0, s1, is_fluid, Ival);
 
    T no_fluid = is_fluid.eq(0);
@@ -272,23 +277,25 @@ T getCentered(const T& self) {
   int d = self.size(2) ;
   int h = self.size(3);
   int w = self.size(4);
- 
+
+  auto options = self.options();
+
   bool is3D = (d > 1);
   d = is3D? (d-1): 2;
   h -= 1;
   w -= 1;
 
-  T idx_x = at::arange(1, w).view({1,w-1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
-  T idx_y = at::arange(1, h).view({1,h-1, 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
+  T idx_x = at::arange(1, w, options).view({1,w-1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
+  T idx_y = at::arange(1, h, options).view({1,h-1, 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
   T idx_z = at::zeros_like(idx_x);
   if (is3D) {
-     idx_z = at::arange(1, d).view({1,d-1, 1 , 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
+     idx_z = at::arange(1, d, options).view({1,d-1, 1 , 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
   }
 
-  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(idx_x.scalar_type());
+  T idx_b = at::arange(0, bsz, options).view({bsz,1,1,1}).toType(idx_x.scalar_type());
   idx_b = idx_b.expand({bsz,d-1,h-1,w-1});
 
-  T idx_c = at::arange(0, 3).view({1,3,1,1,1}).toType(idx_x.scalar_type());
+  T idx_c = at::arange(0, 3, options).view({1,3,1,1,1}).toType(idx_x.scalar_type());
 
   T c_vel_x = 0.5 * ( self.index({idx_b,idx_c.select(1,0) ,idx_z  ,idx_y  ,idx_x  }) + 
                     self.index({idx_b,idx_c.select(1,0) ,idx_z  ,idx_y  ,idx_x+1}) );
@@ -310,24 +317,26 @@ T getAtMACX(const T& self) {
   int d = self.size(2) ;
   int h = self.size(3);
   int w = self.size(4);
- 
+
+  auto options = self.options();
+
   bool is3D = (d > 1);
   d = is3D? (d-1): 2;
   h -= 1;
   w -= 1;
 
 
-  T idx_x = at::arange(1, w).view({1,w-1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
-  T idx_y = at::arange(1, h).view({1,h-1, 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
+  T idx_x = at::arange(1, w, options).view({1,w-1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
+  T idx_y = at::arange(1, h, options).view({1,h-1, 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
   T idx_z = at::zeros_like(idx_x);
   if (is3D) {
-     idx_z = at::arange(1, d).view({1,d-1, 1 , 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
+     idx_z = at::arange(1, d, options).view({1,d-1, 1 , 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
   }
 
-  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(idx_x.scalar_type());
+  T idx_b = at::arange(0, bsz, options).view({bsz,1,1,1}).toType(idx_x.scalar_type());
   idx_b = idx_b.expand({bsz,d-1,h-1,w-1});
 
-  T idx_c = at::arange(0, 3).view({1,3,1,1,1}).toType(idx_x.scalar_type());
+  T idx_c = at::arange(0, 3, options).view({1,3,1,1,1}).toType(idx_x.scalar_type());
 
   T v_x = self.index({idx_b,idx_c.select(1,0) ,idx_z  ,idx_y  ,idx_x  });
 
@@ -353,23 +362,25 @@ T getAtMACY(const T& self) {
   int d = self.size(2) ;
   int h = self.size(3);
   int w = self.size(4);
+
+  auto options = self.options();
  
   bool is3D = (d > 1);
   d = is3D? (d-1): 2;
   h -= 1;
   w -= 1;
 
-  T idx_x = at::arange(1, w).view({1,w-1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
-  T idx_y = at::arange(1, h).view({1,h-1, 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
+  T idx_x = at::arange(1, w, options).view({1,w-1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
+  T idx_y = at::arange(1, h, options).view({1,h-1, 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
   T idx_z = at::zeros_like(idx_x);
   if (is3D) {
-     idx_z = at::arange(1, d).view({1,d-1, 1 , 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
+     idx_z = at::arange(1, d, options).view({1,d-1, 1 , 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
   }
 
-  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(idx_x.scalar_type());
+  T idx_b = at::arange(0, bsz, options).view({bsz,1,1,1}).toType(idx_x.scalar_type());
   idx_b = idx_b.expand({bsz,d-1,h-1,w-1});
 
-  T idx_c = at::arange(0, 3).view({1,3,1,1,1}).toType(idx_x.scalar_type());
+  T idx_c = at::arange(0, 3, options).view({1,3,1,1,1}).toType(idx_x.scalar_type());
  
   T v_x = 0.25 * (self.index({idx_b,idx_c.select(1,0) ,idx_z  ,idx_y  ,idx_x  }) + 
                   self.index({idx_b,idx_c.select(1,0) ,idx_z  ,idx_y-1,idx_x  }) +
@@ -396,23 +407,25 @@ T getAtMACZ(const T& self) {
   int d = self.size(2) ;
   int h = self.size(3);
   int w = self.size(4);
+
+  auto options = self.options();
  
   bool is3D = (d > 1);
   d = is3D? (d-1): 2;
   h -= 1;
   w -= 1;
 
-  T idx_x = at::arange(1, w).view({1,w-1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
-  T idx_y = at::arange(1, h).view({1,h-1, 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
+  T idx_x = at::arange(1, w, options).view({1,w-1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
+  T idx_y = at::arange(1, h, options).view({1,h-1, 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
   T idx_z = at::zeros_like(idx_x);
   if (is3D) {
-     idx_z = at::arange(1, d).view({1,d-1, 1 , 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
+     idx_z = at::arange(1, d, options).view({1,d-1, 1 , 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
   }
 
-  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(idx_x.scalar_type());
+  T idx_b = at::arange(0, bsz, options).view({bsz,1,1,1}).toType(idx_x.scalar_type());
   idx_b = idx_b.expand({bsz,d-1,h-1,w-1});
 
-  T idx_c = at::arange(0, 3).view({1,3,1,1,1}).toType(idx_x.scalar_type());
+  T idx_c = at::arange(0, 3, options).view({1,3,1,1,1}).toType(idx_x.scalar_type());
 
   T v_x = 0.25 * (self.index({idx_b,idx_c.select(1,0) ,idx_z  ,idx_y  ,idx_x  }) + 
                   self.index({idx_b,idx_c.select(1,0) ,idx_z-1,idx_y  ,idx_x  }) +
@@ -441,6 +454,8 @@ T interpolComponent(const T& self, const T& pos, int c) {
   int d = pos.size(2);
   int h = pos.size(3);
   int w = pos.size(4);
+
+  auto options = self.options();
   
   // 0.5 is defined as the center of the first cell as the scheme shows:
   //   |----x----|----x----|----x----|
@@ -461,10 +476,10 @@ T interpolComponent(const T& self, const T& pos, int c) {
   T y0 = pos0.select(1,1).clamp_(0, self.size(3) - 2);
   T z0 = pos0.select(1,2).clamp_(0, self.size(2) - 2);
 
-  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(x0.scalar_type());
+  T idx_b = at::arange(0, bsz, options).view({bsz,1,1,1}).toType(x0.scalar_type());
   idx_b = idx_b.expand({bsz,d,h,w});
 
-  T idx_c = at::arange(0, 3).view({1,3,1,1,1}).toType(pos0.scalar_type());
+  T idx_c = at::arange(0, 3, options).view({1,3,1,1,1}).toType(pos0.scalar_type());
 
   s1.clamp_(0, 1);
   t1.clamp_(0, 1);
@@ -502,23 +517,25 @@ T curl(const T& self) {
   int d = self.size(2) ;
   int h = self.size(3);
   int w = self.size(4);
+
+  auto options = self.options();
  
   bool is3D = (d > 1);
   d = is3D? (d-1): 2;
   h -= 1;
   w -= 1;
 
-  T idx_x = at::arange(1, w).view({1,w-1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
-  T idx_y = at::arange(1, h).view({1,h-1, 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
+  T idx_x = at::arange(1, w, options).view({1,w-1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
+  T idx_y = at::arange(1, h, options).view({1,h-1, 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
   T idx_z = at::zeros_like(idx_x);
   if (is3D) {
-     idx_z = at::arange(1, d).view({1,d-1, 1 , 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong).toType(self.scalar_type());
+     idx_z = at::arange(1, d, options).view({1,d-1, 1 , 1}).expand({bsz,d-1,h-1,w-1}).toType(at::kLong);
   }
 
-  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(idx_x.scalar_type());
+  T idx_b = at::arange(0, bsz, options).view({bsz,1,1,1}).toType(idx_x.scalar_type());
   idx_b = idx_b.expand({bsz,d-1,h-1,w-1});
 
-  T idx_c = at::arange(0, 3).view({1,3,1,1,1}).toType(idx_x.scalar_type());
+  T idx_c = at::arange(0, 3, options).view({1,3,1,1,1}).toType(idx_x.scalar_type());
 
   T v_z = 0.5 *  (self.index({idx_b,idx_c.select(1,1) ,idx_z  ,idx_y  ,idx_x+1}) + 
                   self.index({idx_b,idx_c.select(1,1) ,idx_z-1,idx_y  ,idx_x-1}) +

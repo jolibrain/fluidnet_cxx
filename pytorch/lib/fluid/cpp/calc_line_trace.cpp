@@ -39,8 +39,10 @@ T isBlockedCell(const T& pos, const T& flags) {
   int h = pos.size(3);
   int w = pos.size(4);
 
+  auto options = pos.options();
+
   T ix;
-  T idx_b = at::arange(0, bsz).view({bsz,1,1,1}).toType(at::kLong);
+  T idx_b = at::arange(0, bsz, options).view({bsz,1,1,1}).toType(at::kLong);
   idx_b = idx_b.expand({bsz,d,h,w});
 
   T isOut = isOutOfDomain(pos, flags);

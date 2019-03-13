@@ -403,7 +403,7 @@ try:
                     velx_masked = velx_masked.filled()
                     vely_masked = vely_masked.filled()
 
-                    divergence = np.ascontiguousarray(div[minX:maxX,minY:maxY])
+                    divergence = np.ascontiguousarray(div_np[minX:maxX,minY:maxY])
                     rho = np.ascontiguousarray(density_np[minX:maxX,minY:maxY])
                     p = np.ascontiguousarray(pressure_masked[minX:maxX,minY:maxY])
                     velx = np.ascontiguousarray(velx_masked[minX:maxX,minY:maxY])

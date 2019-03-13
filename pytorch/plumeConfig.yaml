@@ -18,19 +18,19 @@ realTimePlot: true
 # use Paraview to load those files.
 saveVTK: false
 # outputFolder : folder for storing results, checkpoints and config files
-outputFolder: "/path/to/output/folder"
+outputFolder: "/output/folder"
 # simMethod: choose convnet or jacobi
 simMethod: "convnet"
 # modelDir : location of trained model
-modelDir: "../trained_models/ScaleNet_ShortTerm_LongTermLoss"
+modelDir: "/path/to/folder/fluidnet_cxx/trained_models/ScaleNet_ShortTerm_LongTermLoss"
 # modelFilename : name of trained model
 modelFilename: "convModel"
 # dt : simualation timestep
-dt: 10
+dt: 0.1
 # statIter : iterations frequency for output
-statIter: 50
+statIter: 100
 # maxIter : maximum number of simulation iterations
-maxIter: 2000
+maxIter: 20000
 # maccormackStrength : used in semi-lagrangian MacCormack advection
 # when LT div is activated. 0.6 is a good value. If ~1, can lead to
 # high frequency artifacts.
@@ -44,7 +44,7 @@ maccormackStrength: 0.6
 # rho_0 being the average density and delta_rho local difference of density
 # w.r.t average density.
 # Mantaflow calls (1) gravity and (2) buoyancy and allows for different g's 
-buoyancyScale: !!python/float 2.0e-3
+buoyancyScale: !!python/float 0.25
 gravityScale: 0
 # Introduces a correcting factor in the denisty equation 
 # from "A splitting method for incompressible flows with variable
@@ -69,8 +69,8 @@ gravityVec:
     y: -1.0
     z:  0.0
 # injectionDensity : density at buoyant plume inlet
-injectionDensity: 0.01
+injectionDensity: 0.1
 # sourceRadius : radius of inlet zone w.r.t the center of x-axis
 sourceRadius: 0.145
 # injectionVelocity : inlet velocity
-injectionVelocity: 0.1
+injectionVelocity: 2
