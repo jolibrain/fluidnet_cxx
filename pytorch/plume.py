@@ -39,10 +39,6 @@ parser.add_argument('--simConf',
         help='R|Simulation yaml config file.\n'
         'Overwrites parameters from trainingConf file.\n'
         'Default: plumeConfig.yaml')
-parser.add_argument('--trainingConf',
-        default='trainConfig.yaml',
-        help='R|Training yaml config file.\n'
-        'Default: trainConfig.yaml')
 parser.add_argument('--modelDir',
         help='R|Neural network model location.\n'
         'Default: written in simConf file.')
@@ -61,8 +57,6 @@ arguments = parser.parse_args()
 # Loading a YAML object returns a dict
 with open(arguments.simConf, 'r') as f:
     simConf = yaml.load(f)
-with open(arguments.trainingConf, 'r') as f:
-    conf = yaml.load(f)
 
 if not arguments.restartSim:
     restart_sim = simConf['restartSim']

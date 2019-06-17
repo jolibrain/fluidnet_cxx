@@ -213,7 +213,7 @@ T calcRayBorderIntersection(const T& pos, const T& next_pos,
    maskGTEps = (at::abs(dy) >= epsilon).__and__(maskFF).__and__(mOutDom.squeeze(1)); 
    T ystep = (hit_margin - pos.select(1,1)) / dy;
    min_step.
-      masked_scatter_(maskGTEps, at::min(min_step, xstep).masked_select(maskGTEps));
+      masked_scatter_(maskGTEps, at::min(min_step, ystep).masked_select(maskGTEps));
    // Bottom Face
    T maskBF = next_pos.select(1,2) <= hit_margin;
    T dz = next_pos.select(1,2) - pos.select(1,2); //Squeeze dim 1

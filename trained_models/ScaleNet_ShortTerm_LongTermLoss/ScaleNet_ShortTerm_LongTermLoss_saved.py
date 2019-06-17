@@ -124,7 +124,7 @@ class FluidNet(nn.Module):
                 U_temp = UDiv.clone()
 
             # Apply setWallBcs to zero out obstacles velocities on the boundary
-            UDiv = fluid.setWallBcs(UDiv, flags)
+            #UDiv = fluid.setWallBcs(UDiv, flags)
             if 'periodic-x' in self.mconf and 'periodic-y' in self.mconf:
                 if self.mconf['periodic-x']:
                     UDiv[:,1,:,:,1] = U_temp[:,1,:,:,UDiv.size(4)-1]

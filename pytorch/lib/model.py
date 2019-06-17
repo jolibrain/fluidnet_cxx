@@ -119,7 +119,8 @@ class FluidNet(nn.Module):
                 UDiv = input_[:,1:3].contiguous()
 
             # Apply setWallBcs to zero out obstacles velocities on the boundary
-            UDiv = fluid.setWallBcs(UDiv, flags)
+            # XXX: This seems wrong to put here.
+            #UDiv = fluid.setWallBcs(UDiv, flags)
 
             if self.mconf['inputChannels']['div']:
                 div = fluid.velocityDivergence(UDiv, flags)
